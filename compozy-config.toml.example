@@ -1,0 +1,10 @@
+[defaults]
+ide = "codex"
+reasoning_effort = "high"
+auto_commit = false
+
+[tasks]
+types = ["frontend", "backend", "docs", "test", "infra", "refactor", "chore", "bugfix"]
+
+[tasks.run]
+include_completed = false
