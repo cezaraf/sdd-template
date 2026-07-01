@@ -243,23 +243,48 @@ consolidação.
 | `.compozy/tasks/[feature]/bugfix-report.md` | Relatório de correção: causa raiz, regressão e revalidação. | [09](09-corrigir-bugs.md) |
 | `sdd/historico/YYYY-MM-DD-[feature]/` | Incremento arquivado no fechamento, incluindo o contexto de `.compozy/tasks/[feature]/`. | [10](10-consolidar-contrato-vivo.md) |
 
-## Como Instalar Em Um Projeto
+## Instalação
 
-Copie os prompts, as regras comuns e a configuração de exemplo para a raiz do
-projeto alvo:
+Uma linha, dentro do repositório do projeto alvo (escopo por projeto) ou em
+qualquer lugar (escopo global):
 
 ```bash
-cp /data/desenvolvimento/sdd-template/_comum.md /caminho/do/projeto/
-cp /data/desenvolvimento/sdd-template/[0-9][0-9]-*.md /caminho/do/projeto/
-mkdir -p /caminho/do/projeto/.compozy
-mkdir -p /caminho/do/projeto/sdd/contratos
-mkdir -p /caminho/do/projeto/sdd/incrementos
-mkdir -p /caminho/do/projeto/sdd/historico
-cp /data/desenvolvimento/sdd-template/compozy-config.toml.example /caminho/do/projeto/.compozy/config.toml
+curl -fsSL https://raw.githubusercontent.com/cezaraf/sdd-template/main/install.sh | bash
 ```
 
-Depois disso, os prompts `00` a `10` (com `_comum.md` ao lado) passam a ser o
-guia oficial para planejar, executar e fechar entregas com agentes.
+O instalador:
+
+- copia os prompts canônicos (`00`–`10` + `_comum.md`) para `sdd/prompts/`
+  (projeto) ou `~/.sdd/prompts/` (global);
+- gera as etapas como skills/commands `sdd-NN-*` para **Claude Code**
+  (`.claude/skills/`), **Codex** (`.agents/skills/` no projeto,
+  `~/.codex/skills/` global) e **OpenCode** (`.opencode/command/`);
+- no modo projeto, cria `sdd/{contratos,incrementos,historico}`,
+  `.compozy/config.toml` e um bloco SDD idempotente no `AGENTS.md`;
+- instala o CLI do **Compozy** (brew → npm → go → binário de release com
+  checksum) e orienta rodar `compozy setup --all` uma vez.
+
+Variações:
+
+```bash
+# escopo explícito
+curl -fsSL .../install.sh | bash -s -- --global
+curl -fsSL .../install.sh | bash -s -- --project /caminho/do/repo
+
+# só algumas ferramentas; sem Compozy; simulação; remoção
+curl -fsSL .../install.sh | bash -s -- --tools claude,opencode
+curl -fsSL .../install.sh | bash -s -- --skip-compozy
+curl -fsSL .../install.sh | bash -s -- --dry-run
+curl -fsSL .../install.sh | bash -s -- --uninstall
+
+# versão/branch específico; fork próprio
+curl -fsSL .../install.sh | bash -s -- --ref v1.0
+SDD_REPO=usuario/meu-fork curl -fsSL .../install.sh | bash
+```
+
+Depois da instalação, invoque as etapas por `/sdd-00-…` a `/sdd-10-…`
+(Claude Code e OpenCode) ou `$sdd-NN-…` (Codex). Os adaptadores apenas
+apontam para os prompts canônicos — o conteúdo tem fonte única.
 
 ## Regras De Ouro
 
