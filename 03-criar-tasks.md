@@ -1,21 +1,35 @@
 # 03 — Criar tasks BDD executáveis pelo Compozy
 
-Você é um especialista em decomposição de trabalho orientada por BDD/Gherkin e
-execução via Compozy.
+Você é um especialista em decomposição de trabalho orientada por contratos
+canônicos, BDD/Gherkin e execução via Compozy.
 
-Toda comunicação e documentação devem estar em português brasileiro, salvo
-nomes oficiais de tecnologias, comandos, identificadores e campos de protocolo.
+> Leia `_comum.md` (neste diretório) antes de executar este prompt. Ele define
+> idioma, terminologia, contexto canônico, severidade P0–P3, Definition of Done,
+> identificadores, ciclo de status, política de git e contratos vivos.
 
 ## Entradas obrigatórias
 
 ```text
+sdd/incrementos/[feature]/incremento.yaml
+sdd/incrementos/[feature]/brief.md
 .compozy/tasks/[feature]/_prd.md
+```
+
+Para incrementos `medium` e `large`, leia também:
+
+```text
 .compozy/tasks/[feature]/_techspec.md
 ```
+
+Obrigatoriedade de PRD/TechSpec por trilha: ver `_comum.md`. Em incrementos
+`small` sem TechSpec, registre as decisões técnicas simples nos detalhes da
+task ou em ADR, quando necessário.
 
 ## Saídas obrigatórias
 
 ```text
+sdd/incrementos/[feature]/execucao.md
+sdd/incrementos/[feature]/impacto-contratual/[dominio]/contrato.md
 .compozy/tasks/[feature]/INDEX.md
 .compozy/tasks/[feature]/task_01.md
 .compozy/tasks/[feature]/task_02.md
@@ -35,10 +49,18 @@ Crie também, quando necessário:
 
 - NÃO implemente código.
 - NÃO escreva testes implementados.
-- Antes de gerar arquivos, apresente a lista proposta de features, cenários,
-  tasks e dependências para aprovação.
+- Faça perguntas de esclarecimento apenas quando PRD, TechSpec ou impactos
+  contratuais não permitirem decompor com segurança; caso contrário, registre
+  as premissas assumidas e prossiga.
+- Não altere `sdd/contratos/` fora do fechamento
+  (`10-consolidar-contrato-vivo.md`); mudanças de comportamento entram em
+  `sdd/incrementos/[feature]/impacto-contratual/`.
 - Cada task deve ser independente, pequena o suficiente para execução por agente
   e rastreável a RF/BR/RNF e cenários `SCN-*`.
+- IDs `FEAT`, `SCN`, `TST`, `RF`/`RNF` e `BR` seguem o "Esquema de
+  identificadores" de `_comum.md`.
+- Cada comportamento novo, alterado ou removido deve aparecer em impacto contratual com
+  `Comportamentos novos`, `Comportamentos alterados` ou `Comportamentos removidos`.
 - Cada task deve ter exatamente um arquivo `task_NN.md`.
 - Cada task com comportamento deve ter um `.feature` em `# language: pt`.
 - Cada `task_NN.md` deve validar no Compozy.
@@ -90,6 +112,12 @@ dependencies: []
 
 - FEAT-XXX: [nome]
 
+## Impacto contratual relacionado
+
+- Domínio: [dominio]
+- Impacto: `sdd/incrementos/[feature]/impacto-contratual/[dominio]/contrato.md`
+- Tipo de impacto: NOVO / ALTERADO / REMOVIDO
+
 ## Camada e integração
 
 - Tipo: `backend` / `frontend` / `docs` / `test` / `infra` / `refactor` / `chore` / `bugfix`
@@ -109,6 +137,7 @@ dependencies: []
 
 - RF-XXX
 - RNF-XXX
+- Comportamento: [nome no impacto contratual]
 
 ## Regras de negócio cobertas
 
@@ -147,12 +176,16 @@ Consultar `_techspec.md`. Não repetir detalhes extensos aqui.
 
 ## Testes planejados
 
-- TST-XXX: [teste derivado de cenário/arquitetura]
+- TST-XXX: [teste derivado de cenário/contrato]
 
 ## Fora de escopo
 
 - [Itens do PRD fora de escopo e features de outras tasks.]
 ```
+
+Ao gerar cada task, inclua N.8 apenas quando `type: backend` e N.9 apenas
+quando `type: frontend`; para os demais tipos, remova ambas. Remova (não deixe
+desmarcadas) subtasks não aplicáveis.
 
 ## Template Gherkin
 
@@ -174,15 +207,89 @@ Funcionalidade: [nome]
       Então [resultado observável]
 ```
 
+## Template de impacto contratual
+
+Este é o template canônico de impacto contratual;
+`10-consolidar-contrato-vivo.md` referencia este formato.
+
+```markdown
+# Impacto contratual - [Domínio]
+
+## Comportamentos novos
+
+### Comportamento: [nome]
+
+O sistema deve [comportamento observável].
+
+#### Cenário: [nome]
+
+- DADO [contexto]
+- QUANDO [ação]
+- ENTÃO [resultado observável]
+
+## Comportamentos alterados
+
+### Comportamento: [nome existente]
+
+O sistema deve [novo comportamento observável].
+
+(Antes: [resumo do comportamento anterior])
+
+#### Cenário: [nome]
+
+- DADO [contexto]
+- QUANDO [ação]
+- ENTÃO [resultado observável]
+
+## Comportamentos removidos
+
+### Comportamento: [nome existente]
+
+[Motivo da remoção e impacto esperado.]
+```
+
+Inclua apenas seções aplicáveis. Não deixe cabeçalhos vazios.
+
 ## INDEX.md
 
 Gere um índice humano com:
 
+- caminhos do incremento SDD canônico;
 - caminhos do workflow;
 - comandos Compozy;
-- lista de tasks com status, tipo, complexidade, dependências e título;
+- lista de tasks com status, tipo, complexidade, dependências e título
+  (`06-executar-task.md` e `09-corrigir-bugs.md` atualizam a linha da task no
+  `INDEX.md` ao concluir);
+- impactos contratuais por domínio e tipo de incremento;
 - cobertura por camada, indicando tasks backend, frontend e contratos entre elas;
-- matriz de rastreabilidade RF/RNF → BR → FEAT → SCN → task → testes.
+- matriz de rastreabilidade RF/RNF → BR → FEAT → Comportamento → SCN → task →
+  testes.
+
+## `sdd/incrementos/[feature]/execucao.md`
+
+Gere um checklist canônico resumido, com links para as tasks Compozy:
+
+```markdown
+# Tasks: [feature]
+
+## Rastreabilidade canônica
+
+| Item | Domínio | Comportamento | SCN | Compozy task | Teste planejado |
+| --- | --- | --- | --- | --- | --- |
+
+## Checklist
+
+- [ ] `task_01` — [título]
+- [ ] `task_02` — [título]
+
+## Gates
+
+- [ ] `compozy tasks validate --name [feature]`
+- [ ] lint/typecheck/build/test/e2e aplicáveis
+- [ ] review
+- [ ] QA
+- [ ] fechamento
+```
 
 ## Validação obrigatória
 

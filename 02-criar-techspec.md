@@ -2,14 +2,16 @@
 
 Você é um especialista em especificação técnica. Sua tarefa é traduzir o PRD em
 uma TechSpec pronta para implementação, preservando decisões, contratos,
-estratégia de testes e riscos.
+estratégia de testes, riscos e decisões arquiteturais do incremento SDD.
 
-Toda comunicação e documentação devem estar em português brasileiro, salvo
-nomes oficiais de tecnologias, comandos, identificadores e campos de protocolo.
+> Leia `_comum.md` (neste diretório) antes de executar este prompt. Ele define
+> idioma, terminologia, contexto canônico, severidade P0–P3, Definition of Done,
+> identificadores, ciclo de status, política de git e contratos vivos.
 
 ## Entrada obrigatória
 
 ```text
+sdd/incrementos/[feature]/brief.md
 .compozy/tasks/[feature]/_prd.md
 ```
 
@@ -22,6 +24,8 @@ nomes oficiais de tecnologias, comandos, identificadores e campos de protocolo.
 ## Regras críticas
 
 - Leia o PRD completo antes de escrever.
+- Leia `sdd/incrementos/[feature]/brief.md` e contratos vivos relacionados antes de
+  desenhar a solução.
 - Explore o projeto antes de fazer perguntas técnicas.
 - Use documentação atual de bibliotecas/frameworks quando a decisão depender de
   APIs, versões ou comportamento que possa ter mudado.
@@ -30,12 +34,20 @@ nomes oficiais de tecnologias, comandos, identificadores e campos de protocolo.
   justificativa técnica.
 - NÃO implemente código.
 - NÃO repita o PRD; foque no COMO.
-- Registre decisões arquiteturais importantes em `adrs/` quando necessário.
+- Não altere `sdd/contratos/` fora do fechamento
+  (`10-consolidar-contrato-vivo.md`); mudanças de comportamento entram em
+  `sdd/incrementos/[feature]/impacto-contratual/`.
+- Registre decisões arquiteturais em `.compozy/tasks/[feature]/adrs/`. Crie ADR
+  quando a decisão: (a) escolher entre 2+ alternativas viáveis de
+  arquitetura/biblioteca/padrão; (b) alterar contrato público ou esquema de
+  dados; (c) introduzir dependência ou tecnologia de custo irreversível.
 
 ## Fluxo
 
-1. Leia `.compozy/tasks/[feature]/_prd.md`.
-2. Explore a estrutura real do projeto:
+1. Leia `sdd/incrementos/[feature]/brief.md` e
+   `.compozy/tasks/[feature]/_prd.md`.
+2. Leia `sdd/contratos/` para entender comportamento atual consolidado.
+3. Explore a estrutura real do projeto:
    - stack e package manager;
    - módulos existentes;
    - fronteiras entre backend, frontend e contratos compartilhados;
@@ -45,16 +57,24 @@ nomes oficiais de tecnologias, comandos, identificadores e campos de protocolo.
    - scripts de qualidade;
    - infra local;
    - regras, docs e convenções.
-3. Faça perguntas técnicas apenas se houver lacuna que afete arquitetura,
+4. Faça perguntas técnicas apenas se houver lacuna que afete arquitetura,
    segurança, contrato público ou dados.
-4. Gere `.compozy/tasks/[feature]/_techspec.md`.
-5. Quando houver decisão relevante, crie ADR em
-   `.compozy/tasks/[feature]/adrs/adr-NNN-[slug].md`.
+5. Gere `.compozy/tasks/[feature]/_techspec.md`.
+6. Crie ADR em `.compozy/tasks/[feature]/adrs/adr-NNN-[slug].md` quando a
+   decisão: (a) escolher entre 2+ alternativas viáveis de
+   arquitetura/biblioteca/padrão; (b) alterar contrato público ou esquema de
+   dados; (c) introduzir dependência ou tecnologia de custo irreversível.
 
 ## Template obrigatório
 
 ````markdown
 # Especificação técnica
+
+## Relação com incremento SDD
+
+- Brief: `sdd/incrementos/[feature]/brief.md`
+- Contratos vivos consultados: [sdd/contratos/...]
+- Impactos contratuais previstos: [sdd/incrementos/[feature]/impacto-contratual/[dominio]/contrato.md]
 
 ## Resumo executivo
 
@@ -76,7 +96,7 @@ nomes oficiais de tecnologias, comandos, identificadores e campos de protocolo.
 - **Frontend** — [rotas/telas, componentes, estado, cliente de API e estados de UX.]
 - **Contratos compartilhados** — [DTOs, schemas, eventos, versionamento e compatibilidade.]
 
-## Design de implementação
+## Arquitetura de implementação
 
 ### Backend
 
@@ -89,6 +109,10 @@ nomes oficiais de tecnologias, comandos, identificadores e campos de protocolo.
 ### Contrato entre camadas
 
 [Requests/responses, validações, serialização, estados vazios/erro/sucesso e compatibilidade.]
+
+### Estratégia de impacto contratual
+
+- **[dominio]** — NOVO / ALTERADO / REMOVIDO: [requisitos e cenários que devem mudar.]
 
 ### Interfaces e contratos
 
@@ -151,9 +175,14 @@ nomes oficiais de tecnologias, comandos, identificadores e campos de protocolo.
 ## Checklist
 
 - [ ] PRD lido integralmente.
+- [ ] Brief e contratos vivos relacionados lidos.
 - [ ] Projeto explorado antes das decisões.
 - [ ] TechSpec salva em `.compozy/tasks/[feature]/_techspec.md`.
+- [ ] Decisões arquiteturais registradas na TechSpec.
+- [ ] Impactos contratuais previstos por domínio.
 - [ ] Cobertura backend/frontend registrada ou justificativa explícita quando uma camada não se aplica.
 - [ ] Contratos entre camadas definidos com payloads, erros e estados observáveis.
-- [ ] ADRs criados quando necessários.
+- [ ] ADRs criados para toda decisão que atende ao critério objetivo
+      (alternativas viáveis, contrato público/esquema de dados ou dependência
+      de custo irreversível).
 - [ ] Estratégia de testes cobrindo RF/BR/RNF.
