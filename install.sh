@@ -24,6 +24,10 @@ PROMPTS="00-iniciar-incremento-sdd 01-criar-prd 02-criar-techspec 03-criar-tasks
 04-auditar-especificacao 05-instalar-rules-skills 06-executar-task \
 07-revisar-implementacao 08-executar-qa 09-corrigir-bugs 10-consolidar-contrato-vivo"
 
+# etapas de verificação: registradas também como AGENTS (contexto isolado —
+# auditor/revisor/QA não devem herdar o viés da sessão que implementou)
+AGENT_STEPS="04-auditar-especificacao 07-revisar-implementacao 08-executar-qa"
+
 MARKER_BEGIN="<!-- sdd-template:begin -->"
 MARKER_END="<!-- sdd-template:end -->"
 
@@ -102,6 +106,24 @@ step_desc() { # descrição curta de cada etapa (pt-BR, uma linha, sem aspas dup
   esac
 }
 
+is_agent_step() { case " $AGENT_STEPS " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+
+agent_name() { # nome do agent registrado (só letras minúsculas e hífens)
+  case "$1" in
+    04-auditar-especificacao) echo "sdd-auditor-especificacao" ;;
+    07-revisar-implementacao) echo "sdd-revisor-implementacao" ;;
+    08-executar-qa)           echo "sdd-qa" ;;
+  esac
+}
+
+agent_desc() { # quando delegar para o agent (sem aspas duplas no texto)
+  case "$1" in
+    04-auditar-especificacao) echo "Auditor da especificação SDD (etapa 04): valida PRD, TechSpec, tasks, cenários e impactos contratuais antes da implementação; veredito PRONTO / PRECISA_AJUSTES / BLOQUEADO" ;;
+    07-revisar-implementacao) echo "Revisor de implementação SDD (etapa 07): bugs, regressões, violações de contrato, severidade P0-P3; gera review-report e issues" ;;
+    08-executar-qa)           echo "QA do fluxo SDD (etapa 08): valida a entrega como consumidor (UI/API/CLI), gera relatório de QA e registra bugs reproduzíveis" ;;
+  esac
+}
+
 strip_agents_block() { # remove o bloco SDD de um AGENTS.md (exige ambos os marcadores)
   local file="$1"
   [ -f "$file" ] || return 0
@@ -168,14 +190,20 @@ fi
 if [ "$SCOPE" = "global" ]; then
   CANON_DIR="$HOME/.sdd/prompts"
   CLAUDE_SKILLS="$HOME/.claude/skills"
+  CLAUDE_AGENTS="$HOME/.claude/agents"
   CODEX_SKILLS="$HOME/.codex/skills"
+  CODEX_AGENTS="$HOME/.codex/agents"
   OPENCODE_CMDS="${XDG_CONFIG_HOME:-$HOME/.config}/opencode/command"
+  OPENCODE_AGENTS="${XDG_CONFIG_HOME:-$HOME/.config}/opencode/agent"
   CANON_REF="$CANON_DIR"          # caminho absoluto nos adaptadores
 else
   CANON_DIR="$PROJECT_DIR/sdd/prompts"
   CLAUDE_SKILLS="$PROJECT_DIR/.claude/skills"
+  CLAUDE_AGENTS="$PROJECT_DIR/.claude/agents"
   CODEX_SKILLS="$PROJECT_DIR/.agents/skills"
+  CODEX_AGENTS="$PROJECT_DIR/.codex/agents"
   OPENCODE_CMDS="$PROJECT_DIR/.opencode/command"
+  OPENCODE_AGENTS="$PROJECT_DIR/.opencode/agent"
   CANON_REF="sdd/prompts"         # caminho relativo à raiz do repo
 fi
 
@@ -187,10 +215,15 @@ if [ "$UNINSTALL" -eq 1 ]; then
     run rm -rf "$CLAUDE_SKILLS/sdd-$name" "$CODEX_SKILLS/sdd-$name"
     run rm -f  "$OPENCODE_CMDS/sdd-$name.md"
   done
+  for name in $AGENT_STEPS; do
+    aname="$(agent_name "$name")"
+    run rm -f "$CLAUDE_AGENTS/$aname.md" "$CODEX_AGENTS/$aname.toml" "$OPENCODE_AGENTS/$aname.md"
+  done
   run rm -rf "$CANON_DIR"
   if [ "$DRY_RUN" -eq 0 ]; then
     # limpeza não destrutiva de diretórios que ficaram vazios
-    rmdir "$CLAUDE_SKILLS" "$CODEX_SKILLS" "$OPENCODE_CMDS" 2>/dev/null || true
+    rmdir "$CLAUDE_SKILLS" "$CODEX_SKILLS" "$OPENCODE_CMDS" \
+          "$CLAUDE_AGENTS" "$CODEX_AGENTS" "$OPENCODE_AGENTS" 2>/dev/null || true
     if [ "$SCOPE" = "global" ]; then
       rmdir "$HOME/.sdd" 2>/dev/null || true
     else
@@ -277,27 +310,56 @@ Argumentos do usuário: \$ARGUMENTS
 EOF
 }
 
+agent_body() { # agent_body <passo> — system prompt dos agents (papéis isolados)
+  local step="$1"
+  cat <<EOF
+Você é um papel de verificação do fluxo SDD (Spec-Driven Development) e roda
+em contexto isolado, sem herdar o viés da sessão que implementou.
+
+1. Leia as regras compartilhadas em \`$CANON_REF/_comum.md\`.
+2. Leia o prompt canônico em \`$CANON_REF/$step.md\` e execute-o à risca.
+3. A tarefa recebida deve indicar o incremento (\`[feature]\`) e o escopo; se
+   faltar informação essencial, registre a lacuna no resultado em vez de supor.
+4. Devolva exatamente os artefatos e relatórios exigidos pelo prompt canônico.
+EOF
+}
+
 install_claude() {
-  info "Claude Code: skills em $CLAUDE_SKILLS"
-  local name desc
+  info "Claude Code: skills em $CLAUDE_SKILLS + agents em $CLAUDE_AGENTS"
+  local name desc aname extra
   for name in $PROMPTS; do
     desc="$(step_desc "$name")"
+    extra=""
+    if is_agent_step "$name"; then
+      aname="$(agent_name "$name")"
+      # skill delega ao agent registrado, em contexto isolado (fork)
+      extra="$(printf 'context: fork\nagent: %s' "$aname")"
+      write_file "$CLAUDE_AGENTS/$aname.md" <<EOF
+---
+name: $aname
+description: "$(agent_desc "$name"). Use quando a etapa exigir avaliação em contexto isolado."
+---
+
+$(agent_body "$name")
+EOF
+    fi
     write_file "$CLAUDE_SKILLS/sdd-$name/SKILL.md" <<EOF
 ---
 description: "$desc"
 argument-hint: "[feature] [contexto]"
 disable-model-invocation: true
----
+${extra:+$extra
+}---
 
 $(adapter_body "$name.md")
 EOF
   done
-  note_done "claude: 11 skills (invoque com /sdd-00-... até /sdd-10-...)"
+  note_done "claude: 11 skills + 3 agents (04/07/08 rodam isolados via fork; reinicie a sessão na primeira instalação)"
 }
 
 install_codex() {
-  info "Codex: skills em $CODEX_SKILLS"
-  local name desc
+  info "Codex: skills em $CODEX_SKILLS + agents em $CODEX_AGENTS"
+  local name desc aname
   for name in $PROMPTS; do
     desc="$(step_desc "$name")"
     write_file "$CODEX_SKILLS/sdd-$name/SKILL.md" <<EOF
@@ -309,23 +371,48 @@ description: "$desc. Use somente quando o usuário invocar explicitamente esta e
 $(adapter_body "$name.md")
 EOF
   done
-  note_done "codex: 11 skills (invoque com \$sdd-00-... ou menu /skills; reinicie o Codex)"
+  for name in $AGENT_STEPS; do
+    aname="$(agent_name "$name")"
+    write_file "$CODEX_AGENTS/$aname.toml" <<EOF
+name = "$aname"
+description = "$(agent_desc "$name")"
+developer_instructions = """
+$(agent_body "$name")
+"""
+EOF
+  done
+  note_done "codex: 11 skills + 3 agents (invoque com \$sdd-00-... ou menu /skills; reinicie o Codex)"
 }
 
 install_opencode() {
-  info "OpenCode: commands em $OPENCODE_CMDS"
-  local name desc
+  info "OpenCode: commands em $OPENCODE_CMDS + agents em $OPENCODE_AGENTS"
+  local name desc aname extra
   for name in $PROMPTS; do
     desc="$(step_desc "$name")"
+    extra=""
+    if is_agent_step "$name"; then
+      aname="$(agent_name "$name")"
+      # command delega ao agent registrado e roda como subtask (contexto isolado)
+      extra="$(printf 'agent: %s\nsubtask: true' "$aname")"
+      write_file "$OPENCODE_AGENTS/$aname.md" <<EOF
+---
+description: "$(agent_desc "$name")"
+mode: subagent
+---
+
+$(agent_body "$name")
+EOF
+    fi
     write_file "$OPENCODE_CMDS/sdd-$name.md" <<EOF
 ---
 description: "$desc"
----
+${extra:+$extra
+}---
 
 $(adapter_body "$name.md")
 EOF
   done
-  note_done "opencode: 11 commands (invoque com /sdd-00-... até /sdd-10-...)"
+  note_done "opencode: 11 commands + 3 agents (04/07/08 rodam como subtask do agent; @sdd-... também funciona)"
 }
 
 has_tool claude   && install_claude
@@ -462,9 +549,10 @@ fi
 echo
 info "Instalação concluída (escopo: $SCOPE)"
 echo "  prompts canônicos : $CANON_DIR"
-has_tool claude   && echo "  claude code       : $CLAUDE_SKILLS/sdd-*"
-has_tool codex    && echo "  codex             : $CODEX_SKILLS/sdd-* (reinicie o Codex)"
-has_tool opencode && echo "  opencode          : $OPENCODE_CMDS/sdd-*.md"
+has_tool claude   && echo "  claude code       : $CLAUDE_SKILLS/sdd-* + agents $CLAUDE_AGENTS/sdd-*"
+has_tool codex    && echo "  codex             : $CODEX_SKILLS/sdd-* + agents $CODEX_AGENTS/sdd-*.toml (reinicie o Codex)"
+has_tool opencode && echo "  opencode          : $OPENCODE_CMDS/sdd-*.md + agents $OPENCODE_AGENTS/sdd-*.md"
+echo "  agents isolados   : 04 auditor, 07 revisor, 08 qa (verificação sem viés da sessão)"
 [ "$SCOPE" = "project" ] && echo "  projeto           : sdd/{contratos,incrementos,historico} + .compozy/"
 echo
 first_hint=""

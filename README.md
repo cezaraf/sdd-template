@@ -259,6 +259,11 @@ O instalador:
 - gera as etapas como skills/commands `sdd-NN-*` para **Claude Code**
   (`.claude/skills/`), **Codex** (`.agents/skills/` no projeto,
   `~/.codex/skills/` global) e **OpenCode** (`.opencode/command/`);
+- registra as etapas de verificação como **agents** de contexto isolado —
+  `sdd-auditor-especificacao` (04), `sdd-revisor-implementacao` (07) e
+  `sdd-qa` (08) — para que auditoria, review e QA não herdem o viés da
+  sessão que implementou; as skills 04/07/08 delegam a eles
+  automaticamente (`context: fork` no Claude, `subtask` no OpenCode);
 - no modo projeto, cria `sdd/{contratos,incrementos,historico}`,
   `.compozy/config.toml` e um bloco SDD idempotente no `AGENTS.md`;
 - instala o CLI do **Compozy** (brew → npm → go → binário de release com
