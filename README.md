@@ -289,11 +289,70 @@ curl -fsSL .../install.sh | bash -s -- --ref v1.0
 SDD_REPO=usuario/meu-fork curl -fsSL .../install.sh | bash
 ```
 
-Depois da instalação, invoque as etapas por `/cz-iniciar-incremento`,
-`/cz-criar-prd`, … `/cz-consolidar-contrato-vivo` (Claude Code e OpenCode)
-ou `$cz-…` (Codex). Os adaptadores apenas apontam para os prompts
-canônicos — o conteúdo tem fonte única e a ordem das etapas continua
-registrada na descrição de cada skill (`SDD NN — …`).
+## Como Usar As Skills E Os Agents
+
+### Invocando as etapas
+
+Cada etapa do fluxo é uma skill/command com o mesmo nome nas três
+ferramentas; muda só a sintaxe de invocação:
+
+| Ferramenta | Sintaxe | Exemplo |
+| --- | --- | --- |
+| Claude Code | `/nome [argumentos]` | `/cz-criar-prd filtrar-tarefas` |
+| OpenCode | `/nome [argumentos]` | `/cz-executar-task filtrar-tarefas task_02` |
+| Codex | `$nome [argumentos]` ou menu `/skills` | `$cz-iniciar-incremento painel de clima` |
+
+Tudo que vier depois do nome é passado como argumento da etapa — slug do
+incremento (`[feature]`), contexto livre, caminhos. Sem argumento, a etapa
+pergunta o que precisar. A ordem correta das etapas aparece na descrição de
+cada skill (`SDD NN — …`) e no Mapa de rota por trilha do
+[00-iniciar-incremento-sdd.md](00-iniciar-incremento-sdd.md).
+
+Sessão típica (trilha `small`):
+
+```text
+/cz-iniciar-incremento  quero filtrar tarefas por status
+/cz-criar-prd           filtrar-tarefas-por-status
+/cz-criar-tasks         filtrar-tarefas-por-status
+/cz-auditar-especificacao filtrar-tarefas-por-status   ← roda no agent auditor
+/cz-executar-task       filtrar-tarefas-por-status     (repita por task)
+/cz-executar-qa         filtrar-tarefas-por-status     ← roda no agent de QA
+/cz-consolidar-contrato-vivo filtrar-tarefas-por-status
+```
+
+### Usando os agents
+
+Os três papéis de verificação rodam em **contexto isolado** — não herdam a
+conversa (nem o viés) da sessão que implementou:
+
+| Agent | Etapa | O que devolve |
+| --- | --- | --- |
+| `cz-auditor-especificacao` | 04 | `auditoria-especificacao.md` com `PRONTO`/`PRECISA_AJUSTES`/`BLOQUEADO` |
+| `cz-revisor-implementacao` | 07 | `review-report.md` (`APROVADO`/`REPROVADO`) + issues `P0`–`P3` |
+| `cz-qa` | 08 | relatório de QA + `bugs.md` |
+
+Você normalmente **não os chama diretamente**: as skills 04/07/08 já delegam
+a eles (`context: fork` no Claude Code, `subtask: true` no OpenCode) — invoque
+`/cz-revisar-implementacao` e o agent isolado faz o trabalho, devolvendo só o
+resultado para a sessão principal.
+
+Invocação direta, quando quiser um parecer avulso:
+
+- **Claude Code**: peça em linguagem natural ("use o agente
+  `cz-revisor-implementacao` para revisar o incremento X").
+- **OpenCode**: mencione `@cz-qa` na conversa.
+- **Codex**: os agents ficam em `.codex/agents/*.toml` e são usados pelo
+  mecanismo de subagents; as skills `$cz-…` continuam sendo a porta de
+  entrada do dia a dia.
+
+Notas de plataforma: no Codex, reinicie o CLI após instalar; no Claude Code,
+a primeira instalação global pode exigir reiniciar a sessão para as skills
+aparecerem. A execução em lote das tasks (etapa 06 em escala) é papel do
+Compozy: `compozy tasks run [feature] --ide codex --stream`.
+
+Os adaptadores apenas apontam para os prompts canônicos em `sdd/prompts/`
+(ou `~/.sdd/prompts/`) — o conteúdo tem fonte única; editar o prompt canônico
+muda o comportamento em todas as ferramentas ao mesmo tempo.
 
 ## Regras De Ouro
 
