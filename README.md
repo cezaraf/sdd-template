@@ -256,12 +256,14 @@ O instalador:
 
 - copia os prompts canônicos (`00`–`10` + `_comum.md`) para `sdd/prompts/`
   (projeto) ou `~/.sdd/prompts/` (global);
-- gera as etapas como skills/commands `sdd-NN-*` para **Claude Code**
+- gera as etapas como skills/commands `cz-*` para **Claude Code**
   (`.claude/skills/`), **Codex** (`.agents/skills/` no projeto,
-  `~/.codex/skills/` global) e **OpenCode** (`.opencode/command/`);
+  `~/.codex/skills/` global) e **OpenCode** (`.opencode/command/`) —
+  ex.: `/cz-iniciar-incremento`, `/cz-criar-prd`, `/cz-criar-techspec`
+  (prefixo configurável via `SDD_PREFIX=meu-prefixo`);
 - registra as etapas de verificação como **agents** de contexto isolado —
-  `sdd-auditor-especificacao` (04), `sdd-revisor-implementacao` (07) e
-  `sdd-qa` (08) — para que auditoria, review e QA não herdem o viés da
+  `cz-auditor-especificacao` (04), `cz-revisor-implementacao` (07) e
+  `cz-qa` (08) — para que auditoria, review e QA não herdem o viés da
   sessão que implementou; as skills 04/07/08 delegam a eles
   automaticamente (`context: fork` no Claude, `subtask` no OpenCode);
 - no modo projeto, cria `sdd/{contratos,incrementos,historico}`,
@@ -287,9 +289,11 @@ curl -fsSL .../install.sh | bash -s -- --ref v1.0
 SDD_REPO=usuario/meu-fork curl -fsSL .../install.sh | bash
 ```
 
-Depois da instalação, invoque as etapas por `/sdd-00-…` a `/sdd-10-…`
-(Claude Code e OpenCode) ou `$sdd-NN-…` (Codex). Os adaptadores apenas
-apontam para os prompts canônicos — o conteúdo tem fonte única.
+Depois da instalação, invoque as etapas por `/cz-iniciar-incremento`,
+`/cz-criar-prd`, … `/cz-consolidar-contrato-vivo` (Claude Code e OpenCode)
+ou `$cz-…` (Codex). Os adaptadores apenas apontam para os prompts
+canônicos — o conteúdo tem fonte única e a ordem das etapas continua
+registrada na descrição de cada skill (`SDD NN — …`).
 
 ## Regras De Ouro
 

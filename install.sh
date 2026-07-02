@@ -28,6 +28,9 @@ PROMPTS="00-iniciar-incremento-sdd 01-criar-prd 02-criar-techspec 03-criar-tasks
 # auditor/revisor/QA não devem herdar o viés da sessão que implementou)
 AGENT_STEPS="04-auditar-especificacao 07-revisar-implementacao 08-executar-qa"
 
+# prefixo dos nomes de skill/command/agent (ex.: /cz-criar-prd)
+PREFIX="${SDD_PREFIX:-cz}"
+
 MARKER_BEGIN="<!-- sdd-template:begin -->"
 MARKER_END="<!-- sdd-template:end -->"
 
@@ -108,11 +111,27 @@ step_desc() { # descrição curta de cada etapa (pt-BR, uma linha, sem aspas dup
 
 is_agent_step() { case " $AGENT_STEPS " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 
+skill_slug() { # nome de invocação: prefixo + slug curto sem número
+  case "$1" in
+    00-iniciar-incremento-sdd)   echo "$PREFIX-iniciar-incremento" ;;
+    01-criar-prd)                echo "$PREFIX-criar-prd" ;;
+    02-criar-techspec)           echo "$PREFIX-criar-techspec" ;;
+    03-criar-tasks)              echo "$PREFIX-criar-tasks" ;;
+    04-auditar-especificacao)    echo "$PREFIX-auditar-especificacao" ;;
+    05-instalar-rules-skills)    echo "$PREFIX-instalar-rules-skills" ;;
+    06-executar-task)            echo "$PREFIX-executar-task" ;;
+    07-revisar-implementacao)    echo "$PREFIX-revisar-implementacao" ;;
+    08-executar-qa)              echo "$PREFIX-executar-qa" ;;
+    09-corrigir-bugs)            echo "$PREFIX-corrigir-bugs" ;;
+    10-consolidar-contrato-vivo) echo "$PREFIX-consolidar-contrato-vivo" ;;
+  esac
+}
+
 agent_name() { # nome do agent registrado (só letras minúsculas e hífens)
   case "$1" in
-    04-auditar-especificacao) echo "sdd-auditor-especificacao" ;;
-    07-revisar-implementacao) echo "sdd-revisor-implementacao" ;;
-    08-executar-qa)           echo "sdd-qa" ;;
+    04-auditar-especificacao) echo "$PREFIX-auditor-especificacao" ;;
+    07-revisar-implementacao) echo "$PREFIX-revisor-implementacao" ;;
+    08-executar-qa)           echo "$PREFIX-qa" ;;
   esac
 }
 
@@ -212,12 +231,18 @@ fi
 if [ "$UNINSTALL" -eq 1 ]; then
   info "Removendo artefatos SDD (escopo: $SCOPE)"
   for name in $PROMPTS; do
-    run rm -rf "$CLAUDE_SKILLS/sdd-$name" "$CODEX_SKILLS/sdd-$name"
-    run rm -f  "$OPENCODE_CMDS/sdd-$name.md"
+    slug="$(skill_slug "$name")"
+    # remove também os nomes legados sdd-NN-* de versões anteriores
+    run rm -rf "$CLAUDE_SKILLS/$slug" "$CODEX_SKILLS/$slug" \
+               "$CLAUDE_SKILLS/sdd-$name" "$CODEX_SKILLS/sdd-$name"
+    run rm -f  "$OPENCODE_CMDS/$slug.md" "$OPENCODE_CMDS/sdd-$name.md"
   done
   for name in $AGENT_STEPS; do
     aname="$(agent_name "$name")"
     run rm -f "$CLAUDE_AGENTS/$aname.md" "$CODEX_AGENTS/$aname.toml" "$OPENCODE_AGENTS/$aname.md"
+    for legado in sdd-auditor-especificacao sdd-revisor-implementacao sdd-qa; do
+      run rm -f "$CLAUDE_AGENTS/$legado.md" "$CODEX_AGENTS/$legado.toml" "$OPENCODE_AGENTS/$legado.md"
+    done
   done
   run rm -rf "$CANON_DIR"
   if [ "$DRY_RUN" -eq 0 ]; then
@@ -326,9 +351,10 @@ EOF
 
 install_claude() {
   info "Claude Code: skills em $CLAUDE_SKILLS + agents em $CLAUDE_AGENTS"
-  local name desc aname extra
+  local name desc aname extra slug
   for name in $PROMPTS; do
     desc="$(step_desc "$name")"
+    slug="$(skill_slug "$name")"
     extra=""
     if is_agent_step "$name"; then
       aname="$(agent_name "$name")"
@@ -343,7 +369,7 @@ description: "$(agent_desc "$name"). Use quando a etapa exigir avaliação em co
 $(agent_body "$name")
 EOF
     fi
-    write_file "$CLAUDE_SKILLS/sdd-$name/SKILL.md" <<EOF
+    write_file "$CLAUDE_SKILLS/$slug/SKILL.md" <<EOF
 ---
 description: "$desc"
 argument-hint: "[feature] [contexto]"
@@ -359,12 +385,13 @@ EOF
 
 install_codex() {
   info "Codex: skills em $CODEX_SKILLS + agents em $CODEX_AGENTS"
-  local name desc aname
+  local name desc slug aname
   for name in $PROMPTS; do
     desc="$(step_desc "$name")"
-    write_file "$CODEX_SKILLS/sdd-$name/SKILL.md" <<EOF
+    slug="$(skill_slug "$name")"
+    write_file "$CODEX_SKILLS/$slug/SKILL.md" <<EOF
 ---
-name: sdd-$name
+name: $slug
 description: "$desc. Use somente quando o usuário invocar explicitamente esta etapa do fluxo SDD."
 ---
 
@@ -381,14 +408,15 @@ $(agent_body "$name")
 """
 EOF
   done
-  note_done "codex: 11 skills + 3 agents (invoque com \$sdd-00-... ou menu /skills; reinicie o Codex)"
+  note_done "codex: 11 skills + 3 agents (invoque com \$$PREFIX-... ou menu /skills; reinicie o Codex)"
 }
 
 install_opencode() {
   info "OpenCode: commands em $OPENCODE_CMDS + agents em $OPENCODE_AGENTS"
-  local name desc aname extra
+  local name desc aname extra slug
   for name in $PROMPTS; do
     desc="$(step_desc "$name")"
+    slug="$(skill_slug "$name")"
     extra=""
     if is_agent_step "$name"; then
       aname="$(agent_name "$name")"
@@ -403,7 +431,7 @@ mode: subagent
 $(agent_body "$name")
 EOF
     fi
-    write_file "$OPENCODE_CMDS/sdd-$name.md" <<EOF
+    write_file "$OPENCODE_CMDS/$slug.md" <<EOF
 ---
 description: "$desc"
 ${extra:+$extra
@@ -412,7 +440,7 @@ ${extra:+$extra
 $(adapter_body "$name.md")
 EOF
   done
-  note_done "opencode: 11 commands + 3 agents (04/07/08 rodam como subtask do agent; @sdd-... também funciona)"
+  note_done "opencode: 11 commands + 3 agents (04/07/08 rodam como subtask do agent; @$PREFIX-... também funciona)"
 }
 
 has_tool claude   && install_claude
@@ -446,7 +474,7 @@ Este projeto usa o fluxo SDD (Spec-Driven Development).
 
 - Regras compartilhadas: \`sdd/prompts/_comum.md\` (leitura obrigatória).
 - Etapas do fluxo: \`sdd/prompts/00-*.md\` … \`10-*.md\`, instaladas como
-  skills/commands \`sdd-NN-*\` em Claude Code, Codex e OpenCode.
+  skills/commands \`$PREFIX-*\` em Claude Code, Codex e OpenCode.
 - Verdade do comportamento do sistema: \`sdd/contratos/\` (contratos vivos).
 - Não altere \`sdd/contratos/\` fora do fechamento (etapa 10).
 $MARKER_END
@@ -549,21 +577,21 @@ fi
 echo
 info "Instalação concluída (escopo: $SCOPE)"
 echo "  prompts canônicos : $CANON_DIR"
-has_tool claude   && echo "  claude code       : $CLAUDE_SKILLS/sdd-* + agents $CLAUDE_AGENTS/sdd-*"
-has_tool codex    && echo "  codex             : $CODEX_SKILLS/sdd-* + agents $CODEX_AGENTS/sdd-*.toml (reinicie o Codex)"
-has_tool opencode && echo "  opencode          : $OPENCODE_CMDS/sdd-*.md + agents $OPENCODE_AGENTS/sdd-*.md"
-echo "  agents isolados   : 04 auditor, 07 revisor, 08 qa (verificação sem viés da sessão)"
+has_tool claude   && echo "  claude code       : $CLAUDE_SKILLS/$PREFIX-* + agents $CLAUDE_AGENTS/$PREFIX-*"
+has_tool codex    && echo "  codex             : $CODEX_SKILLS/$PREFIX-* + agents $CODEX_AGENTS/$PREFIX-*.toml (reinicie o Codex)"
+has_tool opencode && echo "  opencode          : $OPENCODE_CMDS/$PREFIX-*.md + agents $OPENCODE_AGENTS/$PREFIX-*.md"
+echo "  agents isolados   : $PREFIX-auditor-especificacao, $PREFIX-revisor-implementacao, $PREFIX-qa"
 [ "$SCOPE" = "project" ] && echo "  projeto           : sdd/{contratos,incrementos,historico} + .compozy/"
 echo
 first_hint=""
-has_tool claude   && first_hint="/sdd-00-iniciar-incremento-sdd (Claude Code)"
+has_tool claude   && first_hint="/$PREFIX-iniciar-incremento (Claude Code)"
 if has_tool opencode; then
   [ -n "$first_hint" ] && first_hint="$first_hint, "
-  first_hint="${first_hint}/sdd-00-iniciar-incremento-sdd (OpenCode)"
+  first_hint="${first_hint}/$PREFIX-iniciar-incremento (OpenCode)"
 fi
 if has_tool codex; then
   [ -n "$first_hint" ] && first_hint="$first_hint, "
-  first_hint="${first_hint}\$sdd-00-iniciar-incremento-sdd (Codex)"
+  first_hint="${first_hint}\$$PREFIX-iniciar-incremento (Codex)"
 fi
 echo "Comece com: $first_hint"
 echo "Novo no SDD? Leia $CANON_DIR/docs/guia-para-leigos.md"
