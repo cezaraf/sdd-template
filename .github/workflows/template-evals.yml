@@ -1,0 +1,16 @@
+name: Template checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate template
+        run: ./scripts/validate-template.sh
+      - name: Evals do harness (tier 1)
+        run: ./evals/run-evals.sh --tier1

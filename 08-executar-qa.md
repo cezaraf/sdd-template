@@ -1,140 +1,105 @@
-# 08 — QA da task
+# 08 — Executar QA
 
-Você é responsável por validar a entrega como consumidor do sistema, exercitando
-UI, API, CLI ou efeitos observáveis definidos pela task.
+Valide a entrega como consumidor do sistema, não apenas como leitor do código.
 
-> Leia `_comum.md` (neste diretório) antes de executar este prompt. Ele define
-> idioma, terminologia, contexto canônico, severidade P0–P3, Definition of Done,
-> identificadores, ciclo de status, política de git e contratos vivos.
+> Rode em contexto isolado. Leia `_comum.md`, contratos, plano, tasks, cenários,
+> review e ambiente do projeto.
 
-## Entradas obrigatórias
-
-Leia o Contexto canônico do incremento (ver `_comum.md`).
-
-Obrigatoriedade de PRD/TechSpec por trilha: ver `_comum.md`.
-
-## Saída
+## Saídas
 
 ```text
 .compozy/tasks/[feature]/qa/task_NN-qa-report.md
+.compozy/tasks/[feature]/bugs.md               (quando houver bug)
 ```
 
-Se encontrar bugs, registre:
+Atualize `fase: qa`.
 
-```text
-.compozy/tasks/[feature]/bugs.md
-```
+## Estratégia
 
-## Etapas
+Preferência:
 
-1. Leia o incremento SDD, impactos contratuais, o contrato vivo relacionado, PRD, TechSpec, task e
-   cenários `SCN-*`.
-2. Monte checklist de QA por cenário:
-   - fluxo;
-   - entrada/payload;
-   - resultado esperado;
-   - cobertura por camada: UI, API, CLI ou efeito observável aplicável;
-   - contrato frontend/backend, quando houver;
-   - Comportamento no impacto contratual;
-   - compatibilidade com comportamento já descrito em `sdd/contratos/`;
-   - verificação de segurança/isolamento;
-   - acessibilidade/performance, quando aplicável;
-   - evidência.
-3. Prepare ambiente local conforme o projeto. Estratégia, em ordem de
-   preferência: testes E2E automatizados existentes > chamadas diretas à API
-   (curl/cliente HTTP) > CLI > inspeção manual assistida da UI. Consulte
-   README/scripts do repositório para subir o ambiente.
-4. Execute fluxos por UI/API/CLI.
-5. Para incremento full-stack, valide ao menos uma jornada UI -> API -> efeito
-   observável/persistência para cada cenário aplicável.
-6. Rode gates relevantes.
-7. Registre bugs com reprodução objetiva e severidade P0–P3 (ver `_comum.md`).
+1. E2E automatizado existente;
+2. API/CLI/runner real;
+3. UI assistida;
+4. inspeção limitada, registrada como `NAO_VERIFICADO`.
 
-Válvula de escape: se um cenário não puder ser exercitado (ambiente não sobe,
-UI inacessível ao agente, dependência externa indisponível), registre limitação
-objetiva no relatório — motivo e o que seria necessário — e marque o cenário
-como NAO_VERIFICADO (nunca como PASSOU).
+Nunca transforme incapacidade de executar em aprovação.
 
-## Template do relatório
+## Checklist por cenário
+
+- entrada e pré-condições;
+- fluxo UI/API/CLI;
+- efeito observável/persistência;
+- contrato entre camadas;
+- segurança/isolamento;
+- acessibilidade/desempenho quando aplicável;
+- evidência reproduzível;
+- comportamento atual e alvo.
+
+## Relatório
 
 ```markdown
-# Relatório de QA — task_NN
+# Relatório de QA — [feature/task]
 
 ## Resumo
 
-- Data:
 - Status: APROVADO / REPROVADO
-- Cenários verificados:
-- Bugs encontrados:
+- Ambiente:
+- Evidence SHA: [mesmo commit da implementação usado pelo review]
+- Limitações:
 
-## Ambiente
+## Cenários
 
-- Comandos executados:
-- Dados de teste:
-- Dependências mockadas:
+| Comportamento | SCN | TST | Fluxo | Resultado | Evidência |
+| --- | --- | --- | --- | --- | --- |
 
-## Cenários verificados
+## Cobertura por superfície
 
-| Comportamento | Cenário | Fluxo | Resultado | Evidência |
-| --- | --- | --- | --- | --- |
-| [Comportamento] | SCN-XXX | | PASSOU/FALHOU/NAO_VERIFICADO | |
-
-## Impactos contratuais
-
-| Domínio | Impacto | Verificação | Resultado |
+| Superfície | Verificação | Resultado | Evidência |
 | --- | --- | --- | --- |
 
-## Cobertura backend/frontend
+## Segurança / acessibilidade / desempenho
 
-| Camada | Verificação | Resultado | Evidência |
-| --- | --- | --- | --- |
-
-## Segurança e isolamento
-
-| Verificação | Resultado | Observações |
-| --- | --- | --- |
-
-## Acessibilidade / performance
-
-| Verificação | Resultado | Observações |
+| Verificação | Resultado | Evidência |
 | --- | --- | --- |
 
 ## Bugs
 
-| Bug | Severidade | Status |
+| BUG | Severidade | Status |
 | --- | --- | --- |
-
-## Conclusão
-
-[Parecer final.]
 ```
 
-## Template de bug
+Resultados válidos: `PASSOU`, `FALHOU`, `NAO_VERIFICADO`.
+
+No relatório final, substitua `APROVADO / REPROVADO` por um único valor exato.
+Qualquer cenário `NAO_VERIFICADO` impede `APROVADO`.
+Review e QA devem apontar para o mesmo `Evidence SHA`. Mudança de implementação
+depois desse commit invalida ambos e exige nova execução independente.
+
+Em `bugs.md`, cada entrada deve começar por `## BUG-NNN` e conter exatamente:
 
 ```markdown
-## BUG-XXX — [título]
-
-- Severidade: P0/P1/P2/P3
-- Task relacionada:
-- Cenário relacionado:
-- Ambiente:
-- Passos para reproduzir:
-- Resultado esperado:
-- Resultado observado:
-- Evidência:
-- Status: Aberto
+- Severidade: P0
+- Status: aberto
 ```
 
-## Critérios de aprovação
+Severidades válidas são `P0` a `P3`; status pode usar maiúsculas/minúsculas,
+mas heading ou campos malformados fazem o gate falhar fechado.
 
-QA só aprova quando todos os `SCN-*` aplicáveis passaram, impactos contratuais foram
-validados como comportamento observável, backend/frontend e contratos entre
-camadas aplicáveis foram exercitados, gates relevantes estão verdes, não há bug
-bloqueante, e segurança/acessibilidade/performance aplicáveis foram verificadas.
+## Métricas
 
-## Roteamento
+Quando review e QA estiverem aprovados e não houver `P0`/`P1` aberto, a entrega
+vira `validado`. Registre o marco e deixe o driver propor o próximo passo:
 
-Se o Status for REPROVADO, registre os bugs em `bugs.md` e acione
-`09-corrigir-bugs.md`. Após as correções, re-execute este QA para os cenários
-reprovados e gere novo relatório. O incremento só segue para
-`10-consolidar-contrato-vivo.md` com QA APROVADO.
+```bash
+sdd/governanca/sdd-metricas.sh [feature] --marcar data_validado
+sdd/governanca/sdd-fluxo.sh [feature]        # --run aplica a transição
+```
+
+## Transição
+
+- Bug/P0/P1/SCN crítico não verificado: `REPROVADO`, seguir para 09.
+- Review e QA aprovados, sem P0/P1:
+  `status: validado`, `fase: pr` quando houver PR, senão `fase: validacao`.
+- `fase: fechamento` só começa no passo 13, depois de `pre-consolidate`; estado
+  sozinho não autoriza escrita no contrato vivo.

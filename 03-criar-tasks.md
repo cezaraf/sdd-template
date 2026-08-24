@@ -1,103 +1,38 @@
-# 03 — Criar tasks BDD executáveis pelo Compozy
+# 03 — Criar plano e tasks BDD
 
-Você é um especialista em decomposição de trabalho orientada por contratos
-canônicos, BDD/Gherkin e execução via Compozy.
+Você converte PRD/TechSpec em um plano persistido e tasks pequenas, rastreáveis
+e executáveis.
 
-> Leia `_comum.md` (neste diretório) antes de executar este prompt. Ele define
-> idioma, terminologia, contexto canônico, severidade P0–P3, Definition of Done,
-> identificadores, ciclo de status, política de git e contratos vivos.
+> Leia `_comum.md` e todo o contexto canônico disponível.
 
-## Entradas obrigatórias
-
-```text
-sdd/incrementos/[feature]/incremento.yaml
-sdd/incrementos/[feature]/brief.md
-.compozy/tasks/[feature]/_prd.md
-```
-
-Para incrementos `medium` e `large`, leia também:
-
-```text
-.compozy/tasks/[feature]/_techspec.md
-```
-
-Obrigatoriedade de PRD/TechSpec por trilha: ver `_comum.md`. Em incrementos
-`small` sem TechSpec, registre as decisões técnicas simples nos detalhes da
-task ou em ADR, quando necessário.
-
-## Saídas obrigatórias
+## Saídas
 
 ```text
 sdd/incrementos/[feature]/execucao.md
 sdd/incrementos/[feature]/impacto-contratual/[dominio]/contrato.md
 .compozy/tasks/[feature]/INDEX.md
-.compozy/tasks/[feature]/task_01.md
-.compozy/tasks/[feature]/task_02.md
-.compozy/tasks/[feature]/feature/001__task.feature
-.compozy/tasks/[feature]/feature/002__task.feature
+.compozy/tasks/[feature]/task_NN.md
+.compozy/tasks/[feature]/feature/NNN__task.feature
 ```
 
-Crie também, quando necessário:
-
-```text
-.compozy/tasks/[feature]/adrs/
-.compozy/tasks/[feature]/memory/
-.compozy/tasks/[feature]/reviews-001/
-```
+Atualize `fase: planejamento`.
 
 ## Regras críticas
 
-- NÃO implemente código.
-- NÃO escreva testes implementados.
-- Faça perguntas de esclarecimento apenas quando PRD, TechSpec ou impactos
-  contratuais não permitirem decompor com segurança; caso contrário, registre
-  as premissas assumidas e prossiga.
-- Não altere `sdd/contratos/` fora do fechamento
-  (`10-consolidar-contrato-vivo.md`); mudanças de comportamento entram em
-  `sdd/incrementos/[feature]/impacto-contratual/`.
-- Cada task deve ser independente, pequena o suficiente para execução por agente
-  e rastreável a RF/BR/RNF e cenários `SCN-*`.
-- IDs `FEAT`, `SCN`, `TST`, `RF`/`RNF` e `BR` seguem o "Esquema de
-  identificadores" de `_comum.md`.
-- Cada comportamento novo, alterado ou removido deve aparecer em impacto contratual com
-  `Comportamentos novos`, `Comportamentos alterados` ou `Comportamentos removidos`.
-- Cada task deve ter exatamente um arquivo `task_NN.md`.
-- Cada task com comportamento deve ter um `.feature` em `# language: pt`.
-- Cada `task_NN.md` deve validar no Compozy.
-- Quando `_techspec.md` indicar impacto em backend e frontend, gere tasks dos
-  dois tipos (`type: backend` e `type: frontend`) com dependências explícitas.
-- Não esconda trabalho frontend em task backend, ou trabalho backend em task
-  frontend. Se uma entrega for indivisível, registre a justificativa na task e
-  no `INDEX.md`.
+- Não implemente código ou testes.
+- Cada comportamento alterado deve existir no impacto contratual.
+- Cada task deve cobrir RF/BR/RNF, comportamento, `SCN-*` e `TST-*`.
+- Backend e frontend devem ser tasks separadas quando a TechSpec indicar duas
+  superfícies; dependências devem ser explícitas.
+- O plano registra a base (`base_ref`/`base_sha`), rota efetiva, arquivos
+  esperados, ordem, riscos, alternativas e provas.
+- Depois de a auditoria aprovar, mudança material de escopo/plano exige revisão
+  do plano e nova auditoria.
+- Rode `compozy tasks validate --name [feature]` e corrija até passar.
 
-## Frontmatter obrigatório de `task_NN.md`
+## Frontmatter de task
 
-O `title` deve ser exatamente igual ao primeiro H1.
-
-```markdown
----
-status: pending
-title: "Task N.0: [título]"
-type: backend
-complexity: medium
-dependencies:
-  - task_01
----
-
-# Task N.0: [título]
-```
-
-Valores permitidos:
-
-- `status`: `pending` ou `completed`
-- `type`: `frontend`, `backend`, `docs`, `test`, `infra`, `refactor`,
-  `chore`, `bugfix`
-- `complexity`: `low`, `medium`, `high`
-- `dependencies`: lista de IDs `task_NN` ou `[]`
-
-## Estrutura de cada task
-
-```markdown
+```yaml
 ---
 status: pending
 title: "Task N.0: [título]"
@@ -105,98 +40,68 @@ type: backend
 complexity: medium
 dependencies: []
 ---
+```
 
+Valores de `type`: `frontend`, `backend`, `docs`, `test`, `infra`, `refactor`,
+`chore`, `bugfix`.
+
+## Estrutura de task
+
+```markdown
 # Task N.0: [título]
 
-## Feature atendida
+## Rastreabilidade
 
-- FEAT-XXX: [nome]
+- FEAT-XXX:
+- RF/RNF:
+- BR:
+- Comportamento:
+- SCN:
+- TST:
+- Impacto contratual:
 
-## Impacto contratual relacionado
+## Limites
 
-- Domínio: [dominio]
-- Impacto: `sdd/incrementos/[feature]/impacto-contratual/[dominio]/contrato.md`
-- Tipo de impacto: NOVO / ALTERADO / REMOVIDO
-
-## Camada e integração
-
-- Tipo: `backend` / `frontend` / `docs` / `test` / `infra` / `refactor` / `chore` / `bugfix`
-- Backend afetado: [módulos, endpoints, jobs, persistência ou "Não se aplica"]
-- Frontend afetado: [rotas, telas, componentes, estado de UI ou "Não se aplica"]
-- Contrato entre camadas: [DTO/API/evento/schema ou "Não se aplica"]
-
-## Arquivo Gherkin relacionado
-
-- `feature/NNN__task.feature`
-
-## Visão geral
-
-[Entrega e valor de negócio.]
-
-## Requisitos cobertos
-
-- RF-XXX
-- RNF-XXX
-- Comportamento: [nome no impacto contratual]
-
-## Regras de negócio cobertas
-
-- BR-XXX: [regra]
-
-## Cenários BDD cobertos
-
-- SCN-XXX: [cenário]
+- Dentro do escopo:
+- Fora do escopo:
+- Arquivos esperados:
+- Contratos afetados:
 
 ## Dependências
 
-- [task_NN ou "Nenhuma"]
+- [task ou "Nenhuma"]
 
 ## Subtasks
 
-- [ ] N.1 Implementar comportamento na camada declarada conforme TechSpec
-- [ ] N.2 Atualizar contratos compartilhados e compatibilidade com a outra camada
-- [ ] N.3 Aplicar validações, permissões e tratamento de erro
-- [ ] N.4 Ligar o `.feature` por teste BDD executável em modo estrito
-- [ ] N.5 Implementar testes unitários
-- [ ] N.6 Implementar testes de integração
-- [ ] N.7 Implementar E2E, se aplicável
-- [ ] N.8 Para task backend: validar endpoints/serviços, persistência, autorização e payloads consumidos pelo frontend
-- [ ] N.9 Para task frontend: validar rotas/telas, estados de UI, acessibilidade e consumo do contrato backend
-
-## Detalhes de implementação
-
-Consultar `_techspec.md`. Não repetir detalhes extensos aqui.
+- [ ] Implementar a menor superfície coerente.
+- [ ] Aplicar validação, autorização e tratamento de erro.
+- [ ] Implementar testes unitários/integração/contrato.
+- [ ] Ligar cada `SCN-*` a teste automatizado.
+- [ ] Atualizar documentação afetada, sem consolidar contrato vivo.
 
 ## Critérios de sucesso
 
-- Cenários `SCN-*` verdes.
-- Regras de negócio aplicadas.
-- Segurança, privacidade e isolamento respeitados.
-- `lint`, `typecheck`, `build`, `test` e E2E aplicável verdes.
+- [resultado observável]
+- Gates verdes.
+- Diff compatível com o plano.
 
-## Testes planejados
+## Evidências esperadas
 
-- TST-XXX: [teste derivado de cenário/contrato]
+- [comando, teste, screenshot, payload ou métrica]
 
-## Fora de escopo
+## Evidências produzidas
 
-- [Itens do PRD fora de escopo e features de outras tasks.]
+[preenchida durante a execução; esta é a única seção livre para anexar provas
+sem mudar o conteúdo material auditado da task]
 ```
 
-Ao gerar cada task, inclua N.8 apenas quando `type: backend` e N.9 apenas
-quando `type: frontend`; para os demais tipos, remova ambas. Remova (não deixe
-desmarcadas) subtasks não aplicáveis.
-
-## Template Gherkin
+## Gherkin
 
 ```gherkin
 # language: pt
 
 @FEAT-XXX
 Funcionalidade: [nome]
-  Como [persona/sistema]
-  Quero [ação]
-  Para [benefício]
 
   Regra: BR-XXX - [regra]
 
@@ -207,13 +112,10 @@ Funcionalidade: [nome]
       Então [resultado observável]
 ```
 
-## Template de impacto contratual
-
-Este é o template canônico de impacto contratual;
-`10-consolidar-contrato-vivo.md` referencia este formato.
+## Impacto contratual
 
 ```markdown
-# Impacto contratual - [Domínio]
+# Impacto contratual — [Domínio]
 
 ## Comportamentos novos
 
@@ -223,90 +125,122 @@ O sistema deve [comportamento observável].
 
 #### Cenário: [nome]
 
-- DADO [contexto]
-- QUANDO [ação]
-- ENTÃO [resultado observável]
+- DADO ...
+- QUANDO ...
+- ENTÃO ...
 
 ## Comportamentos alterados
 
-### Comportamento: [nome existente]
+### Comportamento: [nome atual]
 
-O sistema deve [novo comportamento observável].
+O sistema deve [novo comportamento].
 
-(Antes: [resumo do comportamento anterior])
-
-#### Cenário: [nome]
-
-- DADO [contexto]
-- QUANDO [ação]
-- ENTÃO [resultado observável]
+(Antes: [resumo fiel do contrato vivo])
 
 ## Comportamentos removidos
 
-### Comportamento: [nome existente]
+### Comportamento: [nome]
 
-[Motivo da remoção e impacto esperado.]
+[Motivo, impacto e autorização necessária.]
 ```
 
-Inclua apenas seções aplicáveis. Não deixe cabeçalhos vazios.
+Inclua apenas seções aplicáveis.
 
-## INDEX.md
-
-Gere um índice humano com:
-
-- caminhos do incremento SDD canônico;
-- caminhos do workflow;
-- comandos Compozy;
-- lista de tasks com status, tipo, complexidade, dependências e título
-  (`06-executar-task.md` e `09-corrigir-bugs.md` atualizam a linha da task no
-  `INDEX.md` ao concluir);
-- impactos contratuais por domínio e tipo de incremento;
-- cobertura por camada, indicando tasks backend, frontend e contratos entre elas;
-- matriz de rastreabilidade RF/RNF → BR → FEAT → Comportamento → SCN → task →
-  testes.
-
-## `sdd/incrementos/[feature]/execucao.md`
-
-Gere um checklist canônico resumido, com links para as tasks Compozy:
+## Template de `execucao.md`
 
 ```markdown
-# Tasks: [feature]
+# Plano de execução — [feature]
 
-## Rastreabilidade canônica
+## Identidade da base
 
-| Item | Domínio | Comportamento | SCN | Compozy task | Teste planejado |
+- Base ref:
+- Base SHA:
+- Gerado em:
+- Revisão do plano: 1
+
+## Rota efetiva
+
+- TechSpec: obrigatória/dispensada — [motivo]
+- Review: obrigatório/dispensado — [motivo]
+- PR/merge: obrigatório/dispensado — [motivo]
+- Deploy/verificação: obrigatório/dispensado — [motivo]
+
+## Objetivo operacional
+
+[Resultado que o conjunto de tasks deve produzir.]
+
+## Ordem de implementação
+
+| Ordem | Task | Dependências | Resultado independente |
+| --- | --- | --- | --- |
+
+## Arquivos e superfícies esperadas
+
+| Task | Arquivo/diretório | Tipo de mudança | Motivo |
+| --- | --- | --- | --- |
+
+## Contratos e dados
+
+| Contrato/dado | Mudança | Compatibilidade | Rollback |
+| --- | --- | --- | --- |
+
+## Pontos de risco
+
+| ID | Risco | Probabilidade | Impacto | Mitigação | Sinal de parada |
 | --- | --- | --- | --- | --- | --- |
 
-## Checklist
+## Alternativas descartadas
+
+- [alternativa]: [motivo]
+
+## Provas de conclusão
+
+| TST/SCN | Evidência | Comando/fluxo | Resultado esperado |
+| --- | --- | --- | --- |
+
+## Checklist de tasks
 
 - [ ] `task_01` — [título]
-- [ ] `task_02` — [título]
 
 ## Gates
 
+- [ ] Auditoria de especificação e plano
+- [ ] Gate humano, quando exigido
 - [ ] `compozy tasks validate --name [feature]`
-- [ ] lint/typecheck/build/test/e2e aplicáveis
+- [ ] lint/typecheck/build/test/e2e
 - [ ] review
 - [ ] QA
+- [ ] PR/merge, quando aplicável
+- [ ] deploy/verificação, quando aplicável
 - [ ] fechamento
+
+## Aprovação do plano
+
+### Parecer do agente
+
+- Status: PENDENTE
+- Evidência:
+
+### Gate humano
+
+- Requerido: sim/não
+- Status: PENDENTE
+- Aprovado por:
+- Escopo:
+- Data:
+
+## Revisões do plano
+
+| Revisão | Data | Motivo | Impacto | Reauditoria |
+| --- | --- | --- | --- | --- |
 ```
 
-## Validação obrigatória
+## `INDEX.md`
 
-Depois de criar os arquivos:
-
-```bash
-compozy tasks validate --name [feature]
-```
-
-Corrija até a saída ser:
+Inclua tasks, status, dependências, impactos, cobertura por camada e matriz:
 
 ```text
-all tasks valid
+RF/RNF → BR → FEAT → Comportamento → SCN → task → TST
 ```
 
-Depois rode:
-
-```bash
-compozy sync --name [feature]
-```
+Finalize com `compozy sync --name [feature]`.

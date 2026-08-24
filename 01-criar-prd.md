@@ -1,169 +1,100 @@
 # 01 — Criar PRD
 
-Você é um especialista em criação de PRDs claros, testáveis e orientados a
-resultado. Sua entrega é um Documento de Requisitos de Produto (PRD) agnóstico de
-implementação, salvo no workflow Compozy da feature e vinculado ao incremento SDD
-canônico.
+Você transforma o brief em requisitos de produto claros, observáveis e
+agnósticos de implementação.
 
-> Leia `_comum.md` (neste diretório) antes de executar este prompt. Ele define
-> idioma, terminologia, contexto canônico, severidade P0–P3, Definition of Done,
-> identificadores, ciclo de status, política de git e contratos vivos.
+> Leia `_comum.md`, `incremento.yaml`, `brief.md` e contratos vivos relacionados.
 
-Um incremento não é um PRD: o incremento é a entrega completa (brief, PRD,
-TechSpec, impactos contratuais, tasks, review, QA, bugfix e fechamento); o PRD
-é apenas o documento de produto dentro dele.
-
-## Entrada
-
-O slug `[feature]` e o contexto do incremento vêm de
-`sdd/incrementos/[feature]/`, criados pelo passo `00-iniciar-incremento-sdd.md`.
-Leia antes:
-
-```text
-sdd/incrementos/[feature]/incremento.yaml
-sdd/incrementos/[feature]/brief.md
-sdd/contratos/
-```
-
-Fallback: se `sdd/incrementos/[feature]/brief.md` não existir, volte ao prompt
-`00-iniciar-incremento-sdd.md` ou crie um brief mínimo de triagem sem passar
-pelo 00; nesse caso, colete a descrição e o contexto do usuário e proponha um
-slug em kebab-case antes de salvar.
-
-## Saída obrigatória
+## Saída
 
 ```text
 .compozy/tasks/[feature]/_prd.md
 ```
 
-Crie o diretório se ele não existir.
+Atualize `fase: especificacao` em `incremento.yaml`.
 
-## Regras críticas
+## Regras
 
-- Faça perguntas de esclarecimento apenas quando brief, contexto fornecido e
-  `sdd/contratos/` não permitirem escrever requisito testável; quando o contexto
-  já responder, registre as respostas como premissas (`PRM-NNN`) na seção
-  "Premissas assumidas" e prossiga.
-- NÃO inclua decisões de implementação no PRD.
-- NÃO use o PRD para controlar execução, status de tasks, QA, review ou
-  fechamento; esses controles pertencem ao incremento e ao workflow Compozy.
-- NÃO invente requisitos silenciosamente; registre premissas quando necessário.
-- NÃO ignore contratos vivos já existentes em `sdd/contratos/` quando o produto alterar
-  comportamento atual.
+- Não implemente código nem escolha tecnologia.
+- Toda pergunta do brief deve virar requisito/regra, premissa `PRM-*` ou
+  pergunta aberta.
+- Não invente requisito silenciosamente.
+- Diferencie comportamento atual, comportamento alvo e fora de escopo.
+- Reclassifique rigor/risco quando novas evidências exigirem; registre o motivo.
+- Requisito sem resultado observável não está pronto.
 
-## Fluxo
-
-1. Leia qualquer contexto fornecido pelo usuário.
-2. Faça perguntas de esclarecimento apenas quando brief, contexto fornecido e
-   `sdd/contratos/` não permitirem escrever requisito testável; quando o
-   contexto já responder, registre as respostas como premissas (`PRM-NNN`) na
-   seção "Premissas assumidas" e prossiga.
-3. Resolva cada item de "Perguntas para o PRD responder" do brief: vire
-   requisito ou regra no corpo do PRD, premissa `PRM-NNN`, ou entrada em
-   "Perguntas em aberto". Nenhuma pergunta do brief pode ficar sem destino.
-4. Elabore um plano curto do PRD.
-5. Gere o PRD usando o template abaixo.
-6. Salve em `.compozy/tasks/[feature]/_prd.md`.
-7. NÃO edite o brief (ele é o retrato imutável da triagem). Se o PRD revelar
-   que a classificação de rigor mudou, atualize `rigor` em `incremento.yaml` e
-   registre o motivo na seção "Relação com incremento SDD" do PRD.
-8. Informe o caminho final e um resumo breve.
-
-## Template obrigatório
+## Template
 
 ```markdown
-# Documento de Requisitos do Produto (PRD)
+# Documento de Requisitos do Produto
 
-## Relação com incremento SDD
+## Relação com o incremento
 
 - Brief: `sdd/incrementos/[feature]/brief.md`
-- Contratos vivos relacionados: [sdd/contratos/... ou "Nenhum contrato existente relacionado"]
-- Reclassificação de rigor: [não houve, ou "small → medium: motivo" — rigor
-  vigente vive em `incremento.yaml`]
+- Contratos vivos consultados:
+- Reclassificação: [não houve ou mudança + motivo]
 
-## Visão Geral
+## Problema e valor
 
-[Problema, público-alvo, valor e contexto do produto.]
+[Quem sofre, qual problema existe e por que vale resolver.]
 
-## Objetivos
+## Resultado pretendido
 
-- [Objetivo mensurável 1]
-- [Objetivo mensurável 2]
+- [resultado mensurável]
 
 ## Métricas de sucesso
 
-- [Métrica observável 1]
-- [Métrica observável 2]
+- [métrica, fonte e janela]
 
-## Personas e histórias de usuário
-
-### Persona primária — [nome]
+## Personas e jornadas
 
 - Como [persona], quero [ação], para [benefício].
 
-### Persona secundária — [nome]
-
-- Como [persona], quero [ação], para [benefício].
-
-## Principais funcionalidades
+## Requisitos funcionais
 
 ### RF-001 — [nome]
 
-[Descrição do comportamento esperado em linguagem de produto.]
-
-### RF-002 — [nome]
-
-[Descrição do comportamento esperado.]
+[Comportamento observável.]
 
 ## Regras de negócio
 
-- BR-001: [Regra testável e não ambígua.]
-- BR-002: [Regra testável e não ambígua.]
+- BR-001: [regra testável]
 
 ## Requisitos não funcionais
 
-- RNF-001: [Segurança, performance, acessibilidade, privacidade etc.]
+- RNF-001: [segurança, desempenho, acessibilidade, privacidade etc.]
 
 ## Experiência do usuário
 
-[Fluxos principais, estados vazios/erro/sucesso, acessibilidade e linguagem.]
-
-## Restrições e dependências
-
-- [Dependência externa ou restrição.]
+[Fluxos, estados vazio/erro/sucesso, linguagem e acessibilidade.]
 
 ## Impacto no contrato vivo
 
 - [dominio]: NOVO / ALTERADO / REMOVIDO
-- Requisitos que devem virar impacto contratual: [RF/BR/SCN]
+- Requisitos relacionados:
+
+## Restrições e dependências
+
+- [item]
 
 ## Fora de escopo
 
-- [Item explicitamente excluído.]
+- [item]
 
-## Premissas assumidas
+## Premissas
 
 - PRM-001: [premissa] — pendente de confirmação
 
-[Registre "Nenhuma" quando não houver premissas.]
+## Perguntas abertas
 
-## Perguntas em aberto
-
-- [Pergunta pendente, se houver.]
+- [pergunta e impacto se não respondida]
 ```
-
-Numere `RF`, `RNF`, `BR` e `PRM` conforme o "Esquema de identificadores" de
-`_comum.md`.
 
 ## Checklist
 
-- [ ] Perguntas respondidas ou premissas registradas (PRM-NNN).
-- [ ] Toda pergunta do brief com destino: requisito, premissa ou pergunta em aberto.
-- [ ] PRD salvo em `.compozy/tasks/[feature]/_prd.md`.
-- [ ] PRD vinculado a `sdd/incrementos/[feature]/brief.md`; brief não editado.
-- [ ] Contratos vivos relacionados consultados ou ausência registrada.
-- [ ] Requisitos funcionais numerados.
-- [ ] Regras de negócio testáveis.
-- [ ] Premissas assumidas registradas (PRM-NNN) ou "Nenhuma".
-- [ ] Impacto contratual identificado.
-- [ ] Fora de escopo explícito.
+- Objetivos e métricas observáveis.
+- RF/RNF/BR numerados.
+- Impacto contratual identificado.
+- Fora de escopo explícito.
+- Premissas visíveis.
+- Nenhuma decisão técnica indevida.

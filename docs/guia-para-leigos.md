@@ -1,145 +1,110 @@
-# Guia para leigos — entendendo o fluxo SDD
+# Guia para leigos
 
-Este guia explica o processo para quem nunca trabalhou com SDD
-(Spec-Driven Development), contratos vivos ou agentes de IA. Ele é
-**explicativo, não normativo**: se algo aqui divergir dos prompts numerados ou
-de [`_comum.md`](../_comum.md), os prompts mandam.
+## A ideia
 
-## O problema que isto resolve
+Imagine uma reforma:
 
-Todo sistema envelhece do mesmo jeito: o código sabe o que o sistema faz, mas
-as pessoas esquecem. A documentação fica velha, o time muda, e a IA que ajuda
-a programar não tem como saber o que o sistema *promete* fazer — só o que o
-código *parece* fazer.
+- o **brief** registra por que a reforma começou;
+- o **PRD** diz o que precisa mudar para o morador;
+- a **TechSpec** explica como a obra será feita;
+- o **plano** lista ordem, materiais, riscos e como provar que terminou;
+- as **tasks** são serviços pequenos;
+- a **auditoria** verifica o plano antes de quebrar a parede;
+- a **implementação** executa;
+- o **review** procura erros técnicos;
+- o **QA** usa a casa como morador;
+- o **PR/merge** leva a mudança para a construção oficial;
+- o **deploy** entrega a reforma no lugar certo;
+- o **contrato vivo** atualiza a planta oficial;
+- os **aprendizados** evitam repetir problemas na próxima obra.
 
-O SDD ataca isso com uma regra simples: **nenhuma mudança de comportamento
-acontece sem antes ser escrita, e todo comportamento entregue vira registro
-permanente**. O registro permanente é o contrato vivo: um manual oficial do
-sistema, sempre atualizado, que pessoas e agentes leem antes de mexer em
-qualquer coisa.
+## Por que quatro classificações
 
-## As quatro pastas
+### Rigor
 
-Tudo se organiza em quatro lugares, cada um respondendo a uma pergunta:
+Quanto detalhe precisamos escrever.
+
+### Risco
+
+O tamanho do estrago se algo der errado.
+
+### Autonomia
+
+Até onde o agente pode trabalhar sem nova autorização.
+
+### Alvo
+
+Onde o comportamento precisa existir para ser considerado verdadeiro: local,
+branch ou produção.
+
+Essas coisas não são iguais.
+
+## O que é um gate
+
+Gate é uma porta com condição.
+
+Exemplo:
 
 ```text
-sdd/contratos/    → o que o sistema faz HOJE (o manual oficial)
-sdd/incrementos/  → o que estamos entregando AGORA
-.compozy/tasks/   → o que o agente EXECUTA (planos, tasks, testes)
-sdd/historico/    → o que JÁ FOI entregue (arquivo morto, nunca apagado)
+O auditor concluiu que o plano está pronto.
+Mas a mudança altera autorização.
+Então uma pessoa ainda precisa aprovar.
 ```
 
-## Os documentos e suas analogias
+O parecer do agente verifica. O gate humano autoriza.
+Escrever “aprovado” num arquivo não basta: um verificador externo confirma
+quem aprovou, o escopo e a versão exata do código.
 
-| Documento | Analogia | O que responde |
-| --- | --- | --- |
-| `brief.md` | Ficha de abertura do chamado | De onde veio o pedido? Qual o tamanho? Congela após a triagem. |
-| `_prd.md` (PRD) | Diagnóstico | O que o produto precisa fazer e por quê? Sem decidir tecnologia. |
-| `_techspec.md` (TechSpec) | Planta da obra | Como a engenharia vai construir? Onde mexer? |
-| `task_NN.md` | Ordem de serviço | Um pedaço pequeno e verificável do trabalho. |
-| `NNN__task.feature` (Gherkin) | Roteiro de ensaio | Cenários em linguagem humana: DADO, QUANDO, ENTÃO. |
-| `impacto-contratual/` | Proposta de alteração do manual | Depois desta entrega, o que muda no comportamento? |
-| `sdd/contratos/` | Manual oficial | O que o sistema promete fazer, por domínio. |
-| `incremento.yaml` | Etiqueta da pasta | Identificação, trilha, status e onde está cada artefato. |
-| `sdd/historico/` | Arquivo morto | Tudo de entregas passadas, com contexto completo. |
+## O que é contrato vivo
 
-O detalhe importante: o **impacto contratual** é separado do código de
-propósito. A task diz onde mexer no código; o impacto diz o que muda para o
-usuário ou para o sistema. No fechamento, o impacto é aplicado ao manual
-oficial — assim o manual nunca fica para trás.
+É o manual do comportamento atual:
 
-## Uma entrega do começo ao fim
+```text
+Quando o usuário faz X, o sistema responde Y.
+```
 
-Imagine o pedido: *"quero filtrar tarefas por status"*.
+Durante uma mudança, não alteramos esse manual. Criamos um impacto temporário.
+Depois que a mudança estiver confirmada no alvo correto, o passo 13 atualiza o
+manual. Antes da escrita, o guard cria uma autorização curta ligada à versão do
+código e somente aos domínios declarados; mudar apenas o status não abre o
+contrato.
 
-1. **Triagem (passo 00)** — Você registra o pedido e o processo classifica o
-   tamanho: mudança local e de baixo risco → trilha `small`; produto novo com
-   várias camadas → `large`. Nasce a pasta do incremento com a ficha
-   (`brief.md`) e a etiqueta (`incremento.yaml`). A ficha congela aqui.
+## O que impede o agente de ignorar regras
 
-2. **PRD (passo 01)** — O diagnóstico: quem usa o filtro, quais regras valem
-   ("o status selecionado limita os resultados"), o que fica fora de escopo.
-   Cada pergunta que a ficha levantou recebe um destino: vira requisito,
-   premissa assumida ou pergunta em aberto.
+Há três níveis:
 
-3. **TechSpec (passo 02, trilhas `medium`/`large`)** — A planta: quais telas,
-   endpoints e dados mudam, e quais decisões técnicas valem para todos.
+1. prompt/rule: explica;
+2. policy/hook/CI: bloqueia;
+3. eval: garante que futuras mudanças no harness não quebrem a regra.
 
-4. **Tasks e cenários (passo 03)** — O trabalho vira ordens de serviço
-   pequenas, cada uma com cenários de comportamento observável ("DADO que
-   existem tarefas abertas e concluídas, QUANDO filtro por abertas, ENTÃO vejo
-   apenas abertas") e a proposta de alteração do manual.
+Regra crítica apenas escrita em prompt é frágil.
 
-5. **Auditoria (passo 04)** — Antes de escrever código, alguém confere se a
-   especificação fecha: requisitos rastreáveis, cenários testáveis, nada
-   contradizendo o manual oficial. Só `PRONTO` libera a implementação — é um
-   portão, não uma sugestão.
+## Exemplo curto
 
-6. **Execução (passo 06)** — O agente (ou a pessoa) implementa task por task,
-   com testes que citam os cenários. Regra de ouro: ninguém edita o manual
-   oficial durante a implementação.
+Pedido: filtrar tarefas por status.
 
-7. **Review e QA (passos 07 e 08)** — O review lê o código procurando bugs e
-   violações de contrato; o QA usa o sistema como um usuário usaria. Problemas
-   viram registros com severidade (`P0` é gravíssimo, `P3` é cosmético).
+1. `00`: cria o incremento e classifica.
+2. `01`: define requisitos e fora de escopo.
+3. `03`: cria plano, tasks e cenários.
+4. `04`: auditor independente confere.
+5. `06`: agente implementa.
+6. `07`: revisor independente valida implementação e testes.
+7. `08`: QA testa como usuário.
+8. `10`: prepara PR.
+9. `11`: confirma checks e merge.
+10. `13`: atualiza o contrato vivo.
+11. `14`: registra aprendizado útil.
 
-8. **Bugfix (passo 09, se precisar)** — Corrige causa raiz, cria teste de
-   regressão, e volta para review/QA até passar.
+## Quando usar fluxo completo
 
-9. **Fechamento (passo 10)** — Com tudo verde, a proposta de alteração é
-   aplicada ao manual oficial, e a pasta inteira da entrega vai para o arquivo
-   morto. O sistema agora *promete* filtrar tarefas por status — e o próximo
-   incremento vai ler isso antes de mexer.
+Use `large` ou risco alto para:
 
-## Perguntas de iniciante
+- segurança e permissões;
+- dados sensíveis;
+- migrações;
+- contratos públicos;
+- billing;
+- múltiplas camadas;
+- mudanças difíceis de reverter.
 
-**Por que PRD até para mudança pequena?**
-Porque a mudança pequena de hoje é a dúvida de daqui a seis meses. Um PRD
-enxuto (meia página) registra objetivo, regra e fora de escopo — barato agora,
-valioso depois.
-
-**Por que não editar `sdd/contratos/` direto?**
-O manual oficial só muda no fechamento, quando a entrega foi implementada,
-revisada e testada. Se mudasse durante a implementação, descreveria intenção,
-não realidade — e deixaria de ser confiável.
-
-**O que significa small / medium / large?**
-Trilhas de rigor: quanto maior o risco, mais etapas obrigatórias. `small` pula
-a TechSpec; `large` passa por tudo. Os critérios e o mapa de rota estão em
-[`00-iniciar-incremento-sdd.md`](../00-iniciar-incremento-sdd.md).
-
-**O QA reprovou. E agora?**
-Os bugs são registrados, o passo 09 corrige, e o QA roda de novo nos cenários
-reprovados. A entrega só fecha com QA aprovado e sem problema grave (`P0`/`P1`)
-aberto.
-
-**Onde vejo o que o sistema faz hoje?**
-`sdd/contratos/` — um arquivo por domínio (tarefas, usuários, pagamentos...),
-escrito em comportamento observável, legível por qualquer pessoa.
-
-**Por que a ficha (brief) nunca muda?**
-Ela é a evidência histórica da triagem. Meses depois, responde "por que este
-incremento existiu e por que foi classificado assim" — o valor dela é
-exatamente não mudar.
-
-**De onde vem o nome "incremento"?**
-Do desenvolvimento iterativo e incremental — linhagem que vai de Harlan Mills
-(IBM, anos 70), passa pelo modelo espiral de Boehm e chega ao Scrum, onde
-*Increment* é o resultado "pronto" e entregável de uma Sprint. A distinção
-clássica do par: *incremental* é **adicionar** (cada fatia acrescenta
-capacidade completa ao sistema), *iterativo* é **refinar** (repassar o mesmo
-trabalho melhorando). Aqui o incremento segue o sentido do Scrum — fatia
-vertical completa, com definição de "pronto" nos gates do fechamento — e
-carrega um segundo sentido: cada entrega **incrementa o contrato vivo**.
-`sdd/contratos/` só cresce, nunca regride, e `sdd/historico/` é literalmente a
-sequência de incrementos aplicados ao manual do sistema. O lado *iterativo*
-também existe, mas dentro do incremento: os loops auditoria → correção,
-review → bugfix e QA → bugfix são iteração; o incremento fecha quando a
-iteração converge.
-
-## Próximos passos
-
-1. Leia [`_comum.md`](../_comum.md) — as regras compartilhadas em uma página.
-2. Leia o [`README.md`](../README.md) — visão geral, fluxo e tabela de artefatos.
-3. Rode o passo [`00-iniciar-incremento-sdd.md`](../00-iniciar-incremento-sdd.md)
-   com um pedido real e pequeno. O fluxo ensina o resto.
+Para correção local e reversível, use `small`, mas não pule evidência.

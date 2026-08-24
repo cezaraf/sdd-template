@@ -1,0 +1,173 @@
+version: 2
+
+# Subset YAML aceito pelo guard: mapas com indentacao de dois espacos, listas
+# em bloco, escalares plain/quoted e somente [] como flow list. Sintaxe YAML
+# adicional falha fechada; nao ha dependencia de PyYAML.
+project:
+  language: pt-BR
+  default_target_branch: main
+
+protected_paths:
+  # O contrato vivo tambem e protegido por invariante compilada no guard. Esta
+  # entrada documenta a regra, mas sua ausencia nunca abre a janela de escrita.
+  - path: sdd/contratos/
+    writable_only_in_step: pre-consolidate
+  - path: .env
+    access: deny
+  - path: "**/*secret*"
+    access: deny_unless_explicit
+  - path: sdd/governanca/sdd-guard.sh
+    access: deny_unless_explicit
+  - path: sdd/governanca/sdd-hook-claude.sh
+    access: deny_unless_explicit
+  - path: sdd/governanca/sdd-fluxo.sh
+    access: deny_unless_explicit
+  - path: sdd/governanca/sdd-metricas.sh
+    access: deny_unless_explicit
+  - path: sdd/governanca/policies.yaml
+    access: deny_unless_explicit
+  - path: sdd/evals/
+    access: deny_unless_explicit
+  - path: governanca/sdd-guard.sh
+    access: deny_unless_explicit
+  - path: governanca/sdd-hook-claude.sh
+    access: deny_unless_explicit
+  - path: governanca/sdd-fluxo.sh
+    access: deny_unless_explicit
+  - path: governanca/sdd-metricas.sh
+    access: deny_unless_explicit
+  - path: governanca/policies.yaml.example
+    access: deny_unless_explicit
+  - path: evals/
+    access: deny_unless_explicit
+  - path: .github/workflows/sdd-guard.yml
+    access: deny_unless_explicit
+  - path: .claude/settings.json
+    access: deny_unless_explicit
+
+gates:
+  pre_specify:
+    require:
+      - prd: present_without_placeholders
+      - techspec: required_by_route_and_risk
+      - tasks: canonical_pending
+      - audit_status: PRONTO
+      - specification_gate: externally_verified_or_externally_waived
+  pre_implement:
+    require:
+      - pre_specify: green
+      - increment_status: especificado
+  pre_complete:
+    require:
+      - task_definition_of_done: true
+      - compozy_validation: green_when_available
+      - quality_commands: green_or_external_waiver
+      - live_contract: untouched
+  pre_validate:
+    require:
+      - tasks: completed
+      - review: approved_when_required
+      - qa: approved
+      - open_p0_p1: 0
+      - live_contract: untouched
+  pre_merge:
+    require:
+      - pre_validate: green
+      - quality_commands: green_or_external_waiver
+      - human_gate: externally_verified
+  pre_production:
+    require:
+      - merge_confirmed: true
+      - rollback_defined: true
+      - human_gate: externally_verified_and_recent
+  pre_consolidate:
+    require:
+      - increment_status: validado
+      - target_evidence: present
+      - open_p0_p1: 0
+      - ephemeral_attestation: signed_and_bound
+
+authority:
+  # Sem checker configurado, toda aprovacao/dispensa humana e toda dispensa de
+  # quality_commands e negada. O YAML registra a decisao, mas nunca a prova.
+  # Configure um executavel absoluto, fora do worktree, sem argumentos, e fixe
+  # seu SHA-256. Alterar o checker exige atualizar a policy confiavel.
+  # recebe SDD_AUTH_FEATURE, SDD_AUTH_GATE, SDD_AUTH_HEAD, SDD_AUTH_TARGET e
+  # SDD_AUTH_POLICIES; ações da matriz também recebem SDD_AUTH_AUTONOMY e
+  # SDD_AUTH_DECISION (há aliases legados SDD_FEATURE, SDD_GATE, SDD_HEAD_SHA e
+  # SDD_TARGET). Somente exit 0 comprova a autoridade/evidência.
+  check_command: ""
+  check_sha256: ""
+  timeout_seconds: 30
+  assistido:
+    commit: explicit_external
+    push: explicit_external
+    pull_request: explicit_external
+    merge: explicit_external
+    staging: explicit_external
+    production: explicit_external
+  autonomo_ate_pr:
+    commit: external_scope
+    push: external_scope
+    pull_request: external_scope
+    merge: explicit_external
+    staging: explicit_external
+    production: explicit_external
+  autonomo_ate_staging:
+    commit: external_scope
+    push: external_scope
+    pull_request: external_scope
+    merge: explicit_external
+    staging: external_scope
+    production: explicit_external
+  producao_com_gate:
+    commit: external_scope
+    push: external_scope
+    pull_request: external_scope
+    merge: explicit_external
+    staging: external_scope
+    production: explicit_external_recent
+
+# Cada lista nao vazia e executada por pre-complete e pre-merge, na ordem
+# abaixo. Use listas em bloco para comandos reais. Se todas estiverem vazias,
+# o guard exige authority check para quality_waiver_pre_complete ou
+# quality_waiver_pre_merge; vazio nunca significa aprovado.
+quality_commands:
+  lint: []
+  typecheck: []
+  build: []
+  test: []
+  e2e: []
+
+secrets:
+  forbidden_patterns:
+    - "BEGIN PRIVATE KEY"
+    - "AKIA[0-9A-Z]{16}"
+    - "(?i)(api[_-]?key|token|password)[[:space:]]*[:=][[:space:]]*['\"]?[A-Za-z0-9][A-Za-z0-9+/_.-]{7,}"
+  # Estes paths podem usar somente valores-placeholder exatos. Assinaturas
+  # fortes e qualquer valor literal nao-placeholder continuam bloqueados.
+  allowed_files:
+    - .env.example
+    - "**/.env.example"
+
+production:
+  approval_max_age_minutes: 60
+  require_rollback: true
+  require_health_checks: true
+
+consolidation:
+  # Lease assinado em .git/sdd-state, ligado a feature, HEAD e dominios de
+  # impacto. O primeiro protect troca .ready por .active e registra o consumo.
+  attestation_ttl_seconds: 300
+
+guard_commands:
+  pre_specify: "sdd/governanca/sdd-guard.sh pre-specify [feature]"
+  pre_implement: "sdd/governanca/sdd-guard.sh pre-implement [feature] task_NN"
+  pre_complete: "sdd/governanca/sdd-guard.sh pre-complete [feature] task_NN"
+  pre_validate: "sdd/governanca/sdd-guard.sh pre-validate [feature]"
+  pre_merge: "sdd/governanca/sdd-guard.sh pre-merge [feature]"
+  pre_merge_ci: "sdd/governanca/sdd-guard.sh pre-merge-ci [feature]"
+  pre_production: "sdd/governanca/sdd-guard.sh pre-production [feature]"
+  pre_consolidate: "sdd/governanca/sdd-guard.sh pre-consolidate [feature]"
+  authority_check: "sdd/governanca/sdd-guard.sh authority-check [feature] [gate] [target]"
+  protect_ci: "sdd/governanca/sdd-guard.sh protect-ci [caminho]"

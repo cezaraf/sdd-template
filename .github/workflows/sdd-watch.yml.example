@@ -1,0 +1,94 @@
+# EXEMPLO - loop operacional agendado (playbook AI-native, Stage 6).
+#
+# Copie para .github/workflows/sdd-watch.yml depois de configurar
+# sdd/governanca/watch.yaml com metricas reais do projeto.
+name: SDD watch
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restaurar baseline historico
+        uses: actions/cache/restore@v4
+        with:
+          path: .sdd-watch
+          key: sdd-watch-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            sdd-watch-${{ runner.os }}-${{ github.ref_name }}-
+
+      - name: Avaliar faixas de controle
+        id: watch
+        run: |
+          set +e
+          sdd/governanca/sdd-watch.sh 2>&1 | tee /tmp/watch.out
+          pipeline_status=("${PIPESTATUS[@]}")
+          set -e
+
+          watch_status="${pipeline_status[0]:-99}"
+          tee_status="${pipeline_status[1]:-99}"
+          printf 'band=%s\n' "$watch_status" >>"$GITHUB_OUTPUT"
+
+          if [ "$tee_status" -ne 0 ]; then
+            printf 'Falha ao registrar a saida do watch (exit %s)\n' "$tee_status" >&2
+            exit "$tee_status"
+          fi
+          case "$watch_status" in
+            0|1|2|3) exit 0 ;;
+            *)
+              printf 'sdd-watch falhou durante configuracao ou coleta (exit %s)\n' "$watch_status" >&2
+              exit "$watch_status"
+              ;;
+          esac
+        shell: bash
+
+      # 2 sigma - diagnostico somente-leitura pelo agente (opcional).
+      # - name: Diagnostico do agente
+      #   if: steps.watch.outputs.band == '2'
+      #   env:
+      #     ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      #   run: |
+      #     claude -p "Correlacione as evidencias de /tmp/watch.out com os
+      #       contratos vivos e o historico recente. Nao altere arquivos.
+      #       Produza hipoteses ordenadas por probabilidade." \
+      #       --allowedTools "Read,Bash(git log:*)"
+
+      # 3 sigma - abre incidente; a triagem humana decide se vira incremento.
+      - name: Abrir incidente
+        if: steps.watch.outputs.band == '3'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue create \
+            --title "Incidente operacional detectado (3 sigma)" \
+            --label incidente \
+            --body "$(cat <<EOF
+          Deteccao deterministica acusou banda de acao.
+
+          \`\`\`
+          $(cat /tmp/watch.out)
+          \`\`\`
+
+          Proximo passo: rota de incidente do passo 00
+          (\`/cz-iniciar-incremento\` com origem \`incidente\`), anexando esta
+          issue como evidencia. Runbook pre-aprovado pode ser executado antes,
+          conforme \`sdd/governanca/policies.yaml\`.
+          EOF
+          )"
+
+      - name: Persistir baseline desta execucao
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .sdd-watch
+          key: sdd-watch-${{ runner.os }}-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}

@@ -1,0 +1,396 @@
+#!/usr/bin/env bash
+# EXEMPLO - detector deterministico de desvios operacionais (sem LLM).
+#
+# Copie para sdd/governanca/sdd-watch.sh, ajuste watch.yaml com comandos
+# reais do projeto e agende via cron ou .github/workflows/sdd-watch.yml.
+#
+# Bandas:
+#   exit 0 -> dentro da faixa (ou baseline ainda em formacao)
+#   exit 1 -> 1 sigma: registrar, sem acao
+#   exit 2 -> 2 sigma: diagnostico somente-leitura
+#   exit 3 -> 3 sigma: runbook pre-aprovado e incidente
+#   exit 4 -> erro de configuracao, coleta ou persistencia
+#
+# Uso:
+#   sdd-watch.sh                # avalia todos os checks de watch.yaml
+#   sdd-watch.sh <check-name>   # avalia um check especifico
+set -euo pipefail
+
+root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+root="$(cd "$root" && pwd -P)"
+config="$root/sdd/governanca/watch.yaml"
+state_dir="$root/.sdd-watch"
+error_band=4
+
+[ ! -L "$state_dir" ] || {
+  printf 'sdd-watch: diretorio de estado nao pode ser link simbolico\n' >&2
+  exit "$error_band"
+}
+if ! mkdir -p "$state_dir"; then
+  printf 'sdd-watch: nao foi possivel criar o diretorio de estado: %s\n' "$state_dir" >&2
+  exit "$error_band"
+fi
+[ "$(cd "$state_dir" && pwd -P)" = "$state_dir" ] || {
+  printf 'sdd-watch: diretorio de estado escapou do repositorio\n' >&2
+  exit "$error_band"
+}
+
+if [ ! -f "$config" ] || [ -L "$config" ]; then
+  printf 'sdd-watch: copie sdd/governanca/watch.yaml.example e ajuste os comandos\n' >&2
+  exit "$error_band"
+fi
+[ "$(cd "$(dirname "$config")" && pwd -P)" = "$root/sdd/governanca" ] || {
+  printf 'sdd-watch: watch.yaml deve permanecer no diretório canônico\n' >&2
+  exit "$error_band"
+}
+
+only="${1:-}"
+worst=0
+selected=0
+declare -A seen_names=()
+declare -A state_owners=()
+state_locks=()
+
+cleanup_locks() {
+  local lock
+  for lock in "${state_locks[@]}"; do
+    rmdir "$lock" 2>/dev/null || true
+  done
+}
+trap cleanup_locks EXIT
+trap 'exit 130' INT
+trap 'exit 129' HUP
+trap 'exit 143' TERM
+
+record_error() {
+  printf 'sdd-watch: %s\n' "$*" >&2
+  worst="$error_band"
+}
+
+mark_worst() {
+  local band="$1"
+  if [ "$band" -gt "$worst" ]; then
+    worst="$band"
+  fi
+  return 0
+}
+
+trim() {
+  local value="$1"
+  value="${value#"${value%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  printf '%s' "$value"
+}
+
+is_number() {
+  [[ "$1" =~ ^[+-]?([0-9]+([.][0-9]*)?|[.][0-9]+)([eE][+-]?[0-9]+)?$ ]]
+}
+
+is_positive_integer() {
+  [[ "$1" =~ ^[0-9]+$ ]] \
+    && LC_ALL=C awk -v value="$1" 'BEGIN { exit !(value >= 1 && value == int(value)) }'
+}
+
+is_positive_number() {
+  is_number "$1" && LC_ALL=C awk -v value="$1" 'BEGIN { exit !(value > 0) }'
+}
+
+sanitize_state_name() {
+  local original="$1" safe checksum
+  safe="$(printf '%s' "$original" | LC_ALL=C tr -c 'A-Za-z0-9._-' '_')"
+  case "$safe" in
+    ''|'.'|'..'|.*) safe="_${safe}" ;;
+  esac
+  if [ "${#safe}" -gt 80 ]; then
+    checksum="$(printf '%s' "$original" | cksum | awk '{ print $1 }')"
+    safe="${safe:0:64}_${checksum}"
+  fi
+  printf '%s' "$safe"
+}
+
+# Parser intencionalmente restrito ao subconjunto documentado de watch.yaml.
+# O separador de campos nao e whitespace para preservar campos vazios e comandos
+# ou caminhos que contenham espacos.
+awk_parse() {
+  LC_ALL=C awk '
+    function trim(v) {
+      sub(/^[[:space:]]+/, "", v)
+      sub(/[[:space:]]+$/, "", v)
+      return v
+    }
+    function clean(v, i, c, quote, escaped, out, previous) {
+      v = trim(v)
+      quote = ""
+      escaped = 0
+      out = ""
+      for (i = 1; i <= length(v); i++) {
+        c = substr(v, i, 1)
+        previous = (i > 1) ? substr(v, i - 1, 1) : ""
+        if (escaped) {
+          out = out c
+          escaped = 0
+          continue
+        }
+        if (quote == "\"" && c == "\\") {
+          out = out c
+          escaped = 1
+          continue
+        }
+        if (c == "\"" || c == "\047") {
+          if (quote == "") quote = c
+          else if (quote == c) quote = ""
+          out = out c
+          continue
+        }
+        if (c == "#" && quote == "" && (i == 1 || previous ~ /[[:space:]]/)) break
+        out = out c
+      }
+      out = trim(out)
+      if ((out ~ /^".*"$/) || (out ~ /^\047.*\047$/)) out = substr(out, 2, length(out) - 2)
+      return out
+    }
+    /^[[:space:]]*(#|$)/ { next }
+    /^version:[[:space:]]*/ {
+      versions++
+      v=$0
+      sub(/^version:[[:space:]]*/, "", v)
+      version=clean(v)
+      next
+    }
+    /^checks:[[:space:]]*($|#)/ { check_roots++; inchecks = 1; next }
+    /^[^[:space:]#]/ { invalid=1; inchecks = 0; next }
+    !inchecks { invalid=1; next }
+    inchecks && /^[[:space:]]*-[[:space:]]*name:[[:space:]]*/ {
+      n++
+      v = $0
+      sub(/^[[:space:]]*-[[:space:]]*name:[[:space:]]*/, "", v)
+      name[n] = clean(v)
+      cmd[n] = ""
+      window[n] = "20"
+      sigma_diag[n] = "2"
+      sigma_act[n] = "3"
+      min_samples[n] = "10"
+      runbook[n] = ""
+      next
+    }
+    inchecks && n > 0 {
+      line = $0
+      sub(/^[[:space:]]+/, "", line)
+      if (line ~ /^command:[[:space:]]*/) {
+        if (seen[n, "command"]++) invalid=1
+        v = line; sub(/^command:[[:space:]]*/, "", v); cmd[n] = clean(v)
+      } else if (line ~ /^window:[[:space:]]*/) {
+        if (seen[n, "window"]++) invalid=1
+        v = line; sub(/^window:[[:space:]]*/, "", v); window[n] = clean(v)
+      } else if (line ~ /^sigma_diagnostico:[[:space:]]*/) {
+        if (seen[n, "sigma_diagnostico"]++) invalid=1
+        v = line; sub(/^sigma_diagnostico:[[:space:]]*/, "", v); sigma_diag[n] = clean(v)
+      } else if (line ~ /^sigma_acao:[[:space:]]*/) {
+        if (seen[n, "sigma_acao"]++) invalid=1
+        v = line; sub(/^sigma_acao:[[:space:]]*/, "", v); sigma_act[n] = clean(v)
+      } else if (line ~ /^min_amostras:[[:space:]]*/) {
+        if (seen[n, "min_amostras"]++) invalid=1
+        v = line; sub(/^min_amostras:[[:space:]]*/, "", v); min_samples[n] = clean(v)
+      } else if (line ~ /^runbook:[[:space:]]*/) {
+        if (seen[n, "runbook"]++) invalid=1
+        v = line; sub(/^runbook:[[:space:]]*/, "", v); runbook[n] = clean(v)
+      } else invalid=1
+      next
+    }
+    inchecks { invalid=1; next }
+    END {
+      if (versions != 1 || version != "1" || check_roots != 1 || invalid) exit 2
+      sep = sprintf("%c", 31)
+      for (i = 1; i <= n; i++)
+        printf "%d%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s_\n", i, sep, name[i], sep,
+          cmd[i], sep, window[i], sep, sigma_diag[i], sep, sigma_act[i], sep,
+          min_samples[i], sep, runbook[i], sep
+    }
+  ' "$config"
+}
+
+update_samples() {
+  local samples_file="$1" value="$2" window="$3" state_name="$4" tmp
+  tmp="$(mktemp "$state_dir/.${state_name}.tmp.XXXXXX")" || return 1
+  if [ -f "$samples_file" ] && [ "$window" -gt 1 ] \
+     && ! tail -n "$((window - 1))" "$samples_file" >"$tmp"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  if printf '%s\n' "$value" >>"$tmp" && mv -f "$tmp" "$samples_file"; then
+    return 0
+  fi
+  rm -f "$tmp"
+  return 1
+}
+
+if parsed="$(awk_parse)"; then
+  :
+else
+  printf 'sdd-watch: watch.yaml nao pode ser analisado\n' >&2
+  exit "$error_band"
+fi
+
+while IFS=$'\x1f' read -r idx name cmd window sdiag sact minsamples runbook _; do
+  [ -n "$idx" ] || continue
+  if [ -n "$only" ] && [ "$name" != "$only" ]; then
+    continue
+  fi
+  selected=$((selected + 1))
+
+  valid=1
+  if [ -z "$name" ]; then
+    record_error "check $idx sem nome"
+    valid=0
+  elif [[ -n "${seen_names[$name]+x}" ]]; then
+    record_error "nome de check duplicado: $name"
+    valid=0
+  else
+    seen_names[$name]=1
+  fi
+  if [ -z "$cmd" ]; then
+    record_error "check ${name:-$idx} sem command"
+    valid=0
+  fi
+  if ! is_positive_integer "$window"; then
+    record_error "[$name] window invalida: ${window:-vazio}"
+    valid=0
+  fi
+  if ! is_positive_integer "$minsamples"; then
+    record_error "[$name] min_amostras invalido: ${minsamples:-vazio}"
+    valid=0
+  fi
+  if ! is_positive_number "$sdiag"; then
+    record_error "[$name] sigma_diagnostico invalido: ${sdiag:-vazio}"
+    valid=0
+  fi
+  if ! is_positive_number "$sact"; then
+    record_error "[$name] sigma_acao invalido: ${sact:-vazio}"
+    valid=0
+  fi
+  if [ "$valid" -eq 1 ] && ! LC_ALL=C awk -v window="$window" -v minimum="$minsamples" \
+      -v diagnostic="$sdiag" -v action="$sact" \
+      'BEGIN { exit !(minimum <= window && diagnostic <= action) }'; then
+    record_error "[$name] exige min_amostras <= window e sigma_diagnostico <= sigma_acao"
+    valid=0
+  fi
+  [ "$valid" -eq 1 ] || continue
+
+  state_name="$(sanitize_state_name "$name")"
+  if [[ -n "${state_owners[$state_name]+x}" ]] && [ "${state_owners[$state_name]}" != "$name" ]; then
+    record_error "nomes de check colidem no estado: ${state_owners[$state_name]} e $name"
+    continue
+  fi
+  state_owners[$state_name]="$name"
+  samples_file="$state_dir/$state_name.samples"
+  lock_dir="$state_dir/.$state_name.lock"
+  if ! mkdir "$lock_dir" 2>/dev/null; then
+    record_error "[$name] estado esta sendo atualizado por outro processo"
+    continue
+  fi
+  state_locks+=("$lock_dir")
+  if [ -L "$samples_file" ]; then
+    record_error "[$name] arquivo de estado nao pode ser link simbolico"
+    continue
+  fi
+  if [ -e "$samples_file" ] && [ ! -f "$samples_file" ]; then
+    record_error "[$name] caminho de estado nao e arquivo regular"
+    continue
+  fi
+  if [ -f "$samples_file" ] && ! LC_ALL=C awk '
+      $0 !~ /^[+-]?([0-9]+([.][0-9]*)?|[.][0-9]+)([eE][+-]?[0-9]+)?$/ { bad = 1 }
+      END { exit bad }
+    ' "$samples_file"; then
+    record_error "[$name] baseline contem amostra invalida"
+    continue
+  fi
+
+  command_rc=0
+  if value="$(bash -o pipefail -c "$cmd" 2>/dev/null)"; then
+    value="$(trim "$value")"
+  else
+    command_rc=$?
+    record_error "[$name] coleta falhou (exit $command_rc)"
+    continue
+  fi
+  if ! is_number "$value"; then
+    record_error "[$name] comando nao produziu um unico numero (saida: ${value:-vazio})"
+    continue
+  fi
+
+  baseline_file="$samples_file"
+  [ -f "$baseline_file" ] || baseline_file=/dev/null
+  if result="$(LC_ALL=C awk -v name="$name" -v value="$value" -v window="$window" \
+      -v minimum="$minsamples" -v diagnostic="$sdiag" -v action="$sact" \
+      -v runbook="$runbook" '
+      {
+        slot = (NR - 1) % window
+        samples[slot] = $1 + 0
+      }
+      END {
+        n = (NR < window) ? NR : window
+        if (n < minimum) {
+          printf "sdd-watch [%s]: coletando baseline (%d/%d amostras)\n", name, n + 1, minimum
+          exit 0
+        }
+        for (i in samples) sum += samples[i]
+        mean = sum / n
+        for (i in samples) squared += (samples[i] - mean) ^ 2
+        sd = (n > 1) ? sqrt(squared / (n - 1)) : 0
+        delta = (value + 0) - mean
+        zero_deviation = (sd == 0 && delta != 0)
+        if (sd > 0) {
+          z = delta / sd
+          absolute_z = (z < 0) ? -z : z
+          z_text = sprintf("%.2f", z)
+        } else if (zero_deviation) {
+          absolute_z = action
+          z_text = (delta < 0) ? "-inf" : "+inf"
+        } else {
+          absolute_z = 0
+          z_text = "0.00"
+        }
+        head = sprintf("sdd-watch [%s]: valor=%s media=%.3f sigma=%.3f z=%s", name, value, mean, sd, z_text)
+        if (zero_deviation || absolute_z >= action) {
+          printf "%s -> BANDA DE ACAO (%g sigma): acione runbook pre-aprovado%s e abra incremento pela rota de incidente (passo 00)\n", \
+            head, action, (runbook != "" ? " [" runbook "]" : "")
+          exit 3
+        }
+        if (absolute_z >= diagnostic) {
+          printf "%s -> banda de diagnostico (%g sigma): invoque o agente em modo somente-leitura para correlacionar evidencias\n", head, diagnostic
+          exit 2
+        }
+        if (absolute_z >= 1) {
+          printf "%s -> banda de observacao (1 sigma): registrar, sem acao\n", head
+          exit 1
+        }
+        printf "%s -> ok\n", head
+        exit 0
+      }
+    ' "$baseline_file")"; then
+    band=0
+  else
+    band=$?
+  fi
+
+  if [ "$band" -lt 0 ] || [ "$band" -gt 3 ]; then
+    record_error "[$name] falha ao calcular a banda (exit $band)"
+    continue
+  fi
+  printf '%s\n' "$result"
+  if ! update_samples "$samples_file" "$value" "$window" "$state_name"; then
+    record_error "[$name] nao foi possivel atualizar o baseline"
+    continue
+  fi
+  mark_worst "$band"
+done <<<"$parsed"
+
+if [ "$selected" -eq 0 ]; then
+  if [ -n "$only" ]; then
+    record_error "check nao encontrado: $only"
+  else
+    record_error "watch.yaml nao contem checks"
+  fi
+fi
+
+exit "$worst"
