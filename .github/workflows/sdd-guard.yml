@@ -241,6 +241,55 @@ jobs:
             printf 'SDD_CHANGED_DELETED=%s\n' "$changed_deleted"
           } >>"$GITHUB_ENV"
 
+      - name: Resolver proveniencia do push
+        if: github.event_name == 'push'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          HEAD_SHA: ${{ github.sha }}
+          TARGET_BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          associated_pulls="$RUNNER_TEMP/sdd-associated-pulls.json"
+          push_from_merged_pr=0
+
+          # Um push de merge nao transporta o contexto do PR. Consulte a API
+          # por SHA imutavel e aceite somente um PR efetivamente mergeado para
+          # a mesma branch. Se a consulta falhar, preserve o caminho fail-closed.
+          if gh api \
+            -H 'Accept: application/vnd.github+json' \
+            "/repos/$REPOSITORY/commits/$HEAD_SHA/pulls" \
+            >"$associated_pulls"; then
+            push_from_merged_pr="$(python3 - "$associated_pulls" "$HEAD_SHA" "$TARGET_BRANCH" <<'PY'
+          import json
+          import sys
+
+          path, head_sha, target_branch = sys.argv[1:]
+          with open(path, encoding="utf-8") as stream:
+              pulls = json.load(stream)
+
+          matched = any(
+              pull.get("state") == "closed"
+              and bool(pull.get("merged_at"))
+              and pull.get("merge_commit_sha") == head_sha
+              and pull.get("base", {}).get("ref") == target_branch
+              for pull in pulls
+          )
+          print(1 if matched else 0)
+          PY
+            )"
+          else
+            printf 'nao foi possivel consultar PRs associados; push tratado como direto\n' >&2
+          fi
+
+          printf 'SDD_PUSH_FROM_MERGED_PR=%s\n' "$push_from_merged_pr" >>"$GITHUB_ENV"
+          if [ "$push_from_merged_pr" = 1 ]; then
+            printf 'push associado por SHA a PR mergeado em %s\n' "$TARGET_BRANCH"
+          else
+            printf 'push sem proveniencia de PR mergeado; protecoes permanecem obrigatorias\n'
+          fi
+
       - name: Evals confiaveis da base (tier 1)
         shell: bash
         run: |
@@ -266,11 +315,22 @@ jobs:
       - name: Caminhos protegidos nos arquivos alterados
         shell: bash
         env:
+          EVENT_NAME: ${{ github.event_name }}
           SDD_FEATURE: repository
           SDD_AUTH_TARGET: ${{ github.base_ref || github.ref_name }}
         run: |
           set -euo pipefail
           [ -x "$SDD_GUARD" ] || { printf 'guard ausente\n' >&2; exit 1; }
+
+          # A autorizacao de paths ja ocorreu no pull_request_target. Repeti-la
+          # depois do merge falha porque o push nao carrega o atestado efemero.
+          # Push direto nao recebe esta dispensa e continua no protect-ci.
+          if [ "$EVENT_NAME" = push ] \
+            && [ "${SDD_PUSH_FROM_MERGED_PR:-0}" = 1 ]; then
+            printf 'paths protegidos validados no PR que originou o merge\n'
+            exit 0
+          fi
+
           while IFS= read -r -d '' path; do
             # Tokens efêmeros de pre-consolidate vivem em .git local e não são
             # transportáveis. No CI, mudanças de contrato exigem a autoridade

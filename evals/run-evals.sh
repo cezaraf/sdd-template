@@ -758,6 +758,9 @@ eval_tier1() {
      && grep -q 'protect-ci' "$workflow" \
      && grep -q 'SDD_TRUSTED_POLICIES' "$workflow" \
      && grep -Fq 'git archive --format=tar "$base"' "$workflow" \
+     && grep -Fq 'commits/$HEAD_SHA/pulls' "$workflow" \
+     && grep -q 'SDD_PUSH_FROM_MERGED_PR' "$workflow" \
+     && grep -Fq '[ "${SDD_PUSH_FROM_MERGED_PR:-0}" = 1 ]' "$workflow" \
      && grep -q 'fetch-depth:[[:space:]]*0' "$workflow" \
      && ! grep -q 'continue-on-error:[[:space:]]*true' "$workflow"; then
     report PASS "EVAL-026" "workflow mantém evals, segredos e paths protegidos"
