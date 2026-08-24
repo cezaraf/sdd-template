@@ -1,9 +1,74 @@
-# SDD Template — contratos vivos e SDLC AI-native
+# SDD Template: Specification-Driven Development para agentes de IA
 
-Template para desenvolvimento orientado por especificação com agentes de IA,
-BDD, Compozy, gates verificáveis e contratos vivos.
+[![Template checks](https://github.com/cezaraf/sdd-template/actions/workflows/template-evals.yml/badge.svg)](https://github.com/cezaraf/sdd-template/actions/workflows/template-evals.yml)
+[![SDD guard](https://github.com/cezaraf/sdd-template/actions/workflows/sdd-guard.yml/badge.svg)](https://github.com/cezaraf/sdd-template/actions/workflows/sdd-guard.yml)
 
-A proposta é simples:
+O **SDD Template** é um framework de **Specification-Driven Development
+(SDD)** para equipes que desenvolvem software com agentes de IA. Ele organiza
+Claude Code, OpenAI Codex e OpenCode em um SDLC AI-native com PRD, TechSpec,
+BDD, contratos vivos, revisão independente, QA, CI/CD e gates de segurança.
+
+O produto transforma uma intenção em entrega verificável, limitando a
+autoridade do agente e preservando evidências desde a especificação até o
+merge, deploy e aprendizado operacional.
+
+[Instalar o SDD Template](#instalação) ·
+[Entender o fluxo](#como-o-sdd-template-funciona) ·
+[Ler o guia para iniciantes](docs/guia-para-leigos.md) ·
+[Explorar a arquitetura AI-native](docs/ai-native-sdlc.md)
+
+## O que é Specification-Driven Development (SDD)?
+
+Specification-Driven Development, ou desenvolvimento orientado por
+especificação, é uma abordagem em que requisitos observáveis, cenários BDD,
+decisões técnicas e critérios de aceite controlam a implementação. No SDD
+Template, a especificação não é documentação passiva: ela alimenta gates,
+hooks, evals e políticas executáveis.
+
+Isso reduz duas falhas comuns no desenvolvimento de software com IA:
+
+1. implementar rapidamente a solução errada;
+2. produzir documentação que não controla nem comprova a execução.
+
+Cada artefato reduz ambiguidade, limita autoridade, autoriza uma etapa ou
+registra evidência auditável.
+
+## Por que usar o SDD Template?
+
+| Desafio | Como o produto responde |
+| --- | --- |
+| Agentes alteram código sem contexto suficiente | PRD, TechSpec, plano e tasks aprovadas antes da implementação |
+| Review e QA dependem da mesma sessão | Auditor, revisor e QA executam como agentes isolados |
+| Prompts não garantem segurança | Hooks e policies aplicam gates determinísticos e fail-closed |
+| Requisitos e código divergem | Contratos vivos registram o comportamento realmente consolidado |
+| CI verde não prova prontidão operacional | Merge, deploy, health check e rollback pertencem ao mesmo fluxo |
+| Erros recorrentes não melhoram o processo | Incidentes e retrabalho viram evals, rules, skills ou runbooks |
+
+## Para quem é este framework?
+
+- equipes de engenharia que adotam **AI coding agents** com governança;
+- tech leads que precisam de rastreabilidade entre requisito, código e teste;
+- projetos que usam Claude Code, OpenAI Codex, OpenCode ou Compozy;
+- organizações com requisitos de DevSecOps, auditoria ou separação de funções;
+- times que querem automatizar PR, QA e CI/CD sem liberar autonomia irrestrita.
+
+## Recursos do produto
+
+- classificação independente de **rigor**, **risco**, **autonomia** e **alvo do
+  contrato**;
+- `execucao.md` como plano persistido, com base SHA, arquivos esperados, ordem,
+  riscos, alternativas e provas;
+- separação entre **parecer do agente** e **gate humano**;
+- estado macro (`status`) e fase operacional (`fase`);
+- PR, merge, deploy, verificação e rollback dentro do ciclo;
+- policies e hooks para enforcement determinístico;
+- evals Tier 1 e Tier 2 do próprio harness;
+- promoção de incidentes e retrabalho para rules, skills, runbooks ou evals;
+- contrato vivo consolidado apenas no alvo declarado: local, branch ou produção.
+
+## Como o SDD Template funciona
+
+O fluxo completo conecta especificação, implementação e operação:
 
 ```text
 intenção
@@ -17,30 +82,6 @@ intenção
 → contrato vivo
 → aprendizados e evals
 ```
-
-O fluxo reduz duas falhas comuns de desenvolvimento com agentes:
-
-1. implementar rapidamente a coisa errada;
-2. criar muita documentação que não controla nem prova a execução.
-
-Cada artefato existe para reduzir ambiguidade, limitar autoridade, disparar uma
-etapa ou guardar evidência.
-
-## O que mudou nesta versão
-
-A evolução AI-native adiciona:
-
-- classificação independente de **rigor**, **risco**, **autonomia** e **alvo do
-  contrato**;
-- `execucao.md` como plano persistido, com base SHA, arquivos esperados, ordem,
-  riscos, alternativas e provas;
-- separação entre **parecer do agente** e **gate humano**;
-- estado macro (`status`) e fase operacional (`fase`);
-- PR, merge, deploy e verificação dentro do ciclo;
-- policies/hooks para enforcement determinístico;
-- evals do próprio harness;
-- promoção de incidentes e retrabalho para regras, skills, runbooks ou evals;
-- contrato vivo consolidado apenas no alvo declarado: local, branch ou produção.
 
 ## Núcleo conceitual
 
@@ -466,6 +507,39 @@ migração explícita, preservando a configuração existente.
 
 Incrementos antigos podem ser migrados de forma incremental. Não reescreva
 histórico consolidado.
+
+## Perguntas frequentes sobre SDD e agentes de IA
+
+### O SDD Template substitui Scrum, Kanban ou TDD?
+
+Não. O framework complementa o processo de gestão e as práticas de engenharia.
+Ele define como especificações, autoridade, evidências e contratos acompanham
+cada incremento executado por pessoas e agentes de IA.
+
+### Quais ferramentas de AI coding são suportadas?
+
+O instalador gera integrações para Claude Code, OpenAI Codex e OpenCode. O
+núcleo permanece portável porque prompts, policies, scripts Bash, YAML e
+artefatos Markdown são versionados no próprio projeto.
+
+### É possível usar SDD em projetos existentes?
+
+Sim. A instalação pode ser feita por projeto e não exige reescrever o histórico.
+Novos incrementos adotam o fluxo SDD enquanto contratos e policies existentes
+são preservados ou migrados explicitamente.
+
+### Como o SDD Template torna agentes de IA mais seguros?
+
+O produto combina menor privilégio, paths protegidos, verificação de segredos,
+gates humanos, authority checker externo, hooks fail-closed e workflows de CI.
+Prompts orientam o agente; controles determinísticos decidem o que ele pode
+alterar, publicar ou levar à produção.
+
+### O framework automatiza PR, merge e deploy?
+
+Ele prepara e valida essas etapas conforme a autonomia declarada. Commit, push,
+PR, merge e produção só acontecem quando os gates aplicáveis e a autoridade
+externa estão comprovados; ausência de evidência bloqueia o avanço.
 
 ## Regras de ouro
 
