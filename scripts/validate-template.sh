@@ -56,6 +56,7 @@ test -s governanca/watch.yaml.example || fail "config do detector ausente"
 test -s evals/cases/core-contracts.yaml || fail "catálogo de evals ausente"
 test -x evals/run-evals.sh || fail "runner de evals ausente ou não executável"
 test -s .github/workflows/sdd-guard.yml || fail "workflow do guard ausente"
+test -s .github/workflows/template-evals.yml || fail "workflow de validação ausente"
 test -s .github/workflows/sdd-watch.yml.example || fail "workflow do watch ausente"
 test -x install.sh || fail "install.sh não executável"
 awk '
@@ -75,6 +76,7 @@ done
 # Workflows: valida os eventos e, principalmente, que ausência de controles
 # não seja transformada em sucesso silencioso.
 guard_workflow=.github/workflows/sdd-guard.yml
+template_workflow=.github/workflows/template-evals.yml
 watch_workflow=.github/workflows/sdd-watch.yml.example
 grep -q '^on:' "$guard_workflow" || fail "workflow do guard sem eventos"
 grep -q 'pull_request_target:' "$guard_workflow" || fail "workflow do guard sem pull_request_target confiável"
@@ -88,6 +90,8 @@ grep -q 'SDD_TRUSTED_POLICIES' "$guard_workflow" \
   || fail "workflow não ancora autoridade na policy da base"
 grep -q 'trusted_guard' "$guard_workflow" \
   || fail "workflow não executa guard extraído da base"
+grep -Fq 'git archive --format=tar "$base"' "$guard_workflow" \
+  || fail "workflow não materializa o snapshot completo da base confiável"
 if grep -q 'SDD_CANDIDATE_EVALS' "$guard_workflow"; then
   fail "workflow privilegiado executa eval candidata do PR"
 fi
@@ -96,6 +100,14 @@ grep -q 'set -euo pipefail' "$guard_workflow" || fail "workflow do guard não é
 if grep -q 'continue-on-error:[[:space:]]*true' "$guard_workflow"; then
   fail "workflow do guard permite continue-on-error"
 fi
+grep -q 'bubblewrap' "$template_workflow" \
+  || fail "workflow de validação não instala a sandbox Tier 2"
+grep -q 'apparmor-profiles' "$template_workflow" \
+  || fail "workflow de validação não configura o profile AppArmor do bwrap"
+grep -q 'bwrap --version' "$template_workflow" \
+  || fail "workflow de validação não comprova a sandbox Tier 2"
+grep -Fq 'bwrap --ro-bind / /' "$template_workflow" \
+  || fail "workflow de validação não exercita user namespace do bwrap"
 pinned_uses_re='^[[:space:]]*(-[[:space:]]*)?uses:[[:space:]]+(\./[^[:space:]#]+|[^[:space:]#]+@[0-9a-f]{40})[[:space:]]*(#.*)?$'
 while IFS= read -r uses_line; do
   [[ "$uses_line" =~ $pinned_uses_re ]] \

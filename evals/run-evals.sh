@@ -757,6 +757,7 @@ eval_tier1() {
      && grep -q 'scan-secrets' "$workflow" \
      && grep -q 'protect-ci' "$workflow" \
      && grep -q 'SDD_TRUSTED_POLICIES' "$workflow" \
+     && grep -Fq 'git archive --format=tar "$base"' "$workflow" \
      && grep -q 'fetch-depth:[[:space:]]*0' "$workflow" \
      && ! grep -q 'continue-on-error:[[:space:]]*true' "$workflow"; then
     report PASS "EVAL-026" "workflow mantém evals, segredos e paths protegidos"

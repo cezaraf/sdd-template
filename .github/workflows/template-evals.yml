@@ -10,6 +10,33 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install Tier 2 sandbox dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            apparmor-profiles apparmor-utils bubblewrap
+
+          sandbox_smoke() {
+            bwrap --ro-bind / / --unshare-pid --die-with-parent /usr/bin/true
+          }
+
+          # Ubuntu 24.04 restringe user namespaces sem um profile AppArmor.
+          # Ative somente o profile específico do bwrap; não desabilite a
+          # proteção global do kernel no runner.
+          if ! sandbox_smoke; then
+            profile_source=/usr/share/apparmor/extra-profiles/bwrap-userns-restrict
+            profile_target=/etc/apparmor.d/bwrap-userns-restrict
+            [ -f "$profile_source" ] \
+              || { printf 'profile AppArmor do bwrap ausente\n' >&2; exit 1; }
+            if [ ! -e "$profile_target" ]; then
+              sudo install -m 0644 "$profile_source" "$profile_target"
+            fi
+            sudo apparmor_parser -r "$profile_target"
+          fi
+          bwrap --version
+          sandbox_smoke
       - name: Validate template
         run: ./scripts/validate-template.sh
       - name: Evals do harness (tier 1)
