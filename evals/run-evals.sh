@@ -17,6 +17,12 @@
 #   SDD_EVAL_AGENT="claude -p" SDD_EVAL_JUDGE="claude -p" evals/run-evals.sh --all
 set -uo pipefail
 
+if [ "${BASH_VERSINFO[0]}" -lt 4 ] \
+   || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -lt 4 ]; }; then
+  printf 'run-evals: Bash >= 4.4 é obrigatório\n' >&2
+  exit 2
+fi
+
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TIER="tier1"
 FILTER=""
@@ -71,6 +77,8 @@ TIER1_CASES=(
   EVAL-043 EVAL-044 EVAL-045 EVAL-045b EVAL-046 EVAL-047 EVAL-048
   EVAL-049 EVAL-050 EVAL-051 EVAL-052 EVAL-053 EVAL-053b EVAL-053c EVAL-054 EVAL-055 EVAL-055b
   EVAL-056 EVAL-056b EVAL-056c EVAL-057 EVAL-058 EVAL-058b EVAL-059 EVAL-060 EVAL-060b
+  EVAL-061 EVAL-062 EVAL-063 EVAL-064 EVAL-065 EVAL-066 EVAL-067 EVAL-068 EVAL-069 EVAL-070 EVAL-071
+  EVAL-072 EVAL-073
 )
 
 AGENTIC_CASES=(
@@ -337,6 +345,20 @@ rewrite_file() {
     rm -f "$tmp"
     return 1
   fi
+}
+
+write_hook_payload() {
+  local file="$1" hook_command="$2"
+  python3 - "$file" "$hook_command" <<'PY'
+import json
+import pathlib
+import sys
+
+pathlib.Path(sys.argv[1]).write_text(
+    json.dumps({"tool_name": "Bash", "tool_input": {"command": sys.argv[2]}}) + "\n",
+    encoding="utf-8",
+)
+PY
 }
 
 write_review() {
@@ -1136,7 +1158,7 @@ PY
     bash -c "cd '$p' && sdd/governanca/sdd-hook-claude.sh < '$payload'"
   payload="$fixture_root/ev053-helm.json"
   printf '%s\n' '{"tool_name":"Bash","tool_input":{"command":"helm --namespace prod upgrade app chart"}}' >"$payload"
-  expect_block_match "EVAL-053c" "opção global do Helm não oculta deploy" 'status.*validado' \
+  expect_exit 2 "EVAL-053c" "opção global do Helm não oculta deploy" \
     bash -c "cd '$p' && sdd/governanca/sdd-hook-claude.sh < '$payload'"
 
   # EVAL-054 — ambiente herdado não muda o comportamento do checker selado.
@@ -1233,6 +1255,296 @@ PY
   printf '%s\n' '{"tool_name":"Bash","tool_input":{"command":"npm --prefix sdd/contratos install"}}' >"$payload"
   expect_exit 2 "EVAL-060b" "opção global de package manager não oculta instalação" \
     bash -c "cd '$p' && sdd/governanca/sdd-hook-claude.sh < '$payload'"
+
+  # EVAL-061 / REVIEW-027 — composição, subshell e command substitution são
+  # recusados antes de qualquer gate ou execução do comando candidato.
+  p="$(new_fixture ev061)"
+  cp "$root/governanca/sdd-guard.sh" "$p/sdd/governanca/sdd-guard.sh"
+  cp "$root/governanca/sdd-hook-claude.sh" "$p/sdd/governanca/sdd-hook-claude.sh"
+  chmod 0755 "$p/sdd/governanca/sdd-guard.sh" "$p/sdd/governanca/sdd-hook-claude.sh"
+  review_ok=1
+  for hook_command in \
+    '(touch review027-marker)' \
+    'printf %s "$(touch review027-marker)"' \
+    'printf %s `touch review027-marker`'; do
+    payload="$fixture_root/ev061-$RANDOM.json"
+    write_hook_payload "$payload" "$hook_command"
+    hook_rc=0
+    (cd "$p" && sdd/governanca/sdd-hook-claude.sh <"$payload" >/dev/null 2>&1) || hook_rc=$?
+    [ "$hook_rc" -eq 2 ] || review_ok=0
+  done
+  if [ "$review_ok" -eq 1 ] && [ ! -e "$p/review027-marker" ]; then
+    report PASS "EVAL-061" "REVIEW-027 bloqueia shell composto antes da execução"
+  else
+    report FAIL "EVAL-061" "REVIEW-027 bloqueia shell composto antes da execução" \
+      "rc inesperado ou marcador de mutação criado"
+  fi
+
+  # EVAL-062 / REVIEW-028 — ambiente sensível e carregamento de código shell
+  # não podem preceder a decisão do hook.
+  p="$(new_fixture ev062)"
+  cp "$root/governanca/sdd-guard.sh" "$p/sdd/governanca/sdd-guard.sh"
+  cp "$root/governanca/sdd-hook-claude.sh" "$p/sdd/governanca/sdd-hook-claude.sh"
+  chmod 0755 "$p/sdd/governanca/sdd-guard.sh" "$p/sdd/governanca/sdd-hook-claude.sh"
+  printf ': >review028-marker\n' >"$p/evil-env.sh"
+  printf ': >review028-python-marker\n' >"$p/json.py"
+  hostile_path="$fixture_root/ev062-hostile-bin"
+  mkdir -p "$hostile_path"
+  printf '#!/bin/sh\n: >"%s"\nexit 99\n' "$p/review028-path-marker" >"$hostile_path/bash"
+  chmod 0755 "$hostile_path/bash"
+  review_ok=1
+  for hook_command in \
+    'BASH_ENV=./evil-env.sh true' \
+    'env BASH_ENV=./evil-env.sh true' \
+    'source ./evil-env.sh' \
+    '. ./evil-env.sh'; do
+    payload="$fixture_root/ev062-$RANDOM.json"
+    write_hook_payload "$payload" "$hook_command"
+    hook_rc=0
+    (cd "$p" && sdd/governanca/sdd-hook-claude.sh <"$payload" >/dev/null 2>&1) || hook_rc=$?
+    [ "$hook_rc" -eq 2 ] || review_ok=0
+  done
+  payload="$fixture_root/ev062-inherited.json"
+  write_hook_payload "$payload" 'true'
+  hook_rc=0
+  (cd "$p" && BASH_ENV=./evil-env.sh PATH="$hostile_path:/usr/bin:/bin" \
+    sdd/governanca/sdd-hook-claude.sh <"$payload" >/dev/null 2>&1) || hook_rc=$?
+  [ "$hook_rc" -eq 0 ] || review_ok=0
+  payload="$fixture_root/ev062-git-external-diff.json"
+  write_hook_payload "$payload" 'GIT_EXTERNAL_DIFF=./evil-env.sh git diff'
+  hook_rc=0
+  (cd "$p" && sdd/governanca/sdd-hook-claude.sh <"$payload" >/dev/null 2>&1) || hook_rc=$?
+  [ "$hook_rc" -eq 2 ] || review_ok=0
+  for hook_command in \
+    'git -c diff.external=./evil-env.sh diff HEAD^ HEAD' \
+    'git --config-env=diff.external=SDD_FEATURE diff HEAD^ HEAD' \
+    'git --exec-path=./git-helpers status' \
+    'git diff --ext-diff HEAD^ HEAD' \
+    'git diff --output=review028-marker HEAD^ HEAD'; do
+    payload="$fixture_root/ev062-git-option-$RANDOM.json"
+    write_hook_payload "$payload" "$hook_command"
+    hook_rc=0
+    (cd "$p" && sdd/governanca/sdd-hook-claude.sh <"$payload" >/dev/null 2>&1) || hook_rc=$?
+    [ "$hook_rc" -eq 2 ] || review_ok=0
+  done
+  if [ "$review_ok" -eq 1 ] && [ ! -e "$p/review028-marker" ] \
+     && [ ! -e "$p/review028-python-marker" ] && [ ! -e "$p/review028-path-marker" ]; then
+    report PASS "EVAL-062" "REVIEW-028 bloqueia ambiente e source pré-gate"
+  else
+    report FAIL "EVAL-062" "REVIEW-028 bloqueia ambiente e source pré-gate" \
+      "rc inesperado ou código injetado foi executado"
+  fi
+
+  # EVAL-063 / REVIEW-029 — PATH herdado não escolhe helpers da cadeia que
+  # sela e executa o authority checker.
+  p="$(new_fixture ev063)"
+  hostile_path="$fixture_root/ev063-hostile-bin"
+  hostile_marker="$fixture_root/ev063-hostile-helper-ran"
+  mkdir -p "$hostile_path"
+  for helper in bash git env timeout python3 cp chmod rm rmdir mktemp sha256sum; do
+    printf '#!/bin/sh\n: >"%s"\nexit 99\n' "$hostile_marker" >"$hostile_path/$helper"
+    chmod 0755 "$hostile_path/$helper"
+  done
+  printf ': >"%s"\n' "$hostile_marker" >"$p/json.py"
+  evil_bash_env="$fixture_root/ev063-bash-env.sh"
+  printf ': >"%s"\n' "$hostile_marker" >"$evil_bash_env"
+  hook_rc=0
+  (cd "$p" && BASH_ENV="$evil_bash_env" PATH="$hostile_path:/usr/bin:/bin" \
+    "$guard" authority-check ev063 push main \
+    >/dev/null 2>&1) || hook_rc=$?
+  checker_contract="$(sed -n '/^authority_check_external()/,/^)/p' "$guard")"
+  if [ "$hook_rc" -eq 0 ] && [ ! -e "$hostile_marker" ] \
+     && grep -Fq 'trusted_system_binary env' <<<"$checker_contract" \
+     && ! grep -Fq 'command -v env' <<<"$checker_contract"; then
+    report PASS "EVAL-063" "REVIEW-029 usa helpers absolutos do trust root"
+  else
+    report FAIL "EVAL-063" "REVIEW-029 usa helpers absolutos do trust root" \
+      "rc=$hook_rc helper_hostil=$([ -e "$hostile_marker" ] && printf executado || printf ausente)"
+  fi
+
+  # EVAL-064 / REVIEW-030 — um artefato material ignorado não escapa da prova.
+  p="$(running_fixture_with_pending_task ev064)"
+  mkdir -p "$p/.compozy/tasks/ev064/adrs"
+  printf '.compozy/tasks/ev064/adrs/ignored.md\n' >>"$p/.git/info/exclude"
+  printf '# ADR ignorada\n\nDrift material fora do Evidence SHA.\n' \
+    >"$p/.compozy/tasks/ev064/adrs/ignored.md"
+  expect_fail_match "EVAL-064" "REVIEW-030 inclui ignorados materiais no Evidence SHA" \
+    'nao existia no Evidence SHA|ausente do index|reaudit|divergiu' \
+    bash -c "cd '$p' && '$guard' pre-implement ev064 task_02"
+
+  # EVAL-065 / REVIEW-031 — remover um ancestral dos trust roots é sempre uma
+  # mudança de governança, inclusive para `sdd` e para a raiz.
+  p="$(new_fixture ev065)"
+  governance_marker="$fixture_root/ev065-gate"
+  governance_checker="$fixture_root/ev065-checker.sh"
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$SDD_AUTH_GATE" >"%s"\n' \
+    "$governance_marker" >"$governance_checker"
+  chmod 0755 "$governance_checker"
+  governance_sha="$(eval_file_sha256 "$governance_checker")"
+  rewrite_file "$p/sdd/governanca/policies.yaml" \
+    "s#^  check_command:.*#  check_command: \"$governance_checker\"#"
+  rewrite_file "$p/sdd/governanca/policies.yaml" \
+    "s#^  check_sha256:.*#  check_sha256: \"$governance_sha\"#"
+  hook_rc=0
+  (cd "$p" && SDD_FEATURE=ev065 "$guard" protect sdd >/dev/null 2>&1) || hook_rc=$?
+  if [ "$hook_rc" -eq 0 ] && grep -qx 'governance_change' "$governance_marker"; then
+    report PASS "EVAL-065" "REVIEW-031 roteia ancestral como governance_change"
+  else
+    report FAIL "EVAL-065" "REVIEW-031 roteia ancestral como governance_change" "rc=$hook_rc"
+  fi
+
+  # EVAL-066 / REVIEW-032 — nenhuma action de terceiros usa tag mutável.
+  workflow_dir="$root/.github/workflows"
+  [ -d "$workflow_dir" ] || workflow_dir="$(dirname "$root")/.github/workflows"
+  actions_pinned=1
+  pinned_uses_re='^[[:space:]]*(-[[:space:]]*)?uses:[[:space:]]+(\./[^[:space:]#]+|[^[:space:]#]+@[0-9a-f]{40})[[:space:]]*(#.*)?$'
+  while IFS= read -r uses_line; do
+    [[ "$uses_line" =~ $pinned_uses_re ]] || actions_pinned=0
+  done < <(grep -REh '^[[:space:]]*(-[[:space:]]*)?uses:' "$workflow_dir" || true)
+  if [ -f "$workflow_dir/sdd-watch.yml.example" ] \
+     && ! grep -Fq 'actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684' \
+       "$workflow_dir/sdd-watch.yml.example"; then
+    actions_pinned=0
+  fi
+  if [ "$actions_pinned" -eq 1 ] \
+     && grep -Rq 'actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683' "$workflow_dir"; then
+    report PASS "EVAL-066" "REVIEW-032 fixa actions por commit SHA"
+  else
+    report FAIL "EVAL-066" "REVIEW-032 fixa actions por commit SHA" "referência mutável ou SHA ausente"
+  fi
+
+  # EVAL-067 / REVIEW-033 — Tier 2 revela somente uma cópia selada do binário.
+  tier2_contract="$(sed -n '/^run_prompt_command()/,/^}/p' "${BASH_SOURCE[0]}")"
+  if grep -Fq 'sealed_command_dir' <<<"$tier2_contract" \
+     && grep -Fq -- '--ro-bind "$sealed_command_dir" "$sealed_command_dir"' <<<"$tier2_contract" \
+     && grep -Fq -- '--ro-bind /usr /usr' <<<"$tier2_contract" \
+     && ! grep -Fq -- '--ro-bind / /' <<<"$tier2_contract" \
+     && ! grep -Fq -- '--ro-bind "$command_dir" "$command_dir"' <<<"$tier2_contract"; then
+    report PASS "EVAL-067" "REVIEW-033 monta somente executável Tier 2 selado"
+  else
+    report FAIL "EVAL-067" "REVIEW-033 monta somente executável Tier 2 selado" "mount amplo detectado"
+  fi
+
+  # EVAL-068 / REVIEW-034 — todos os entrypoints que usam mapfile declaram 4.4.
+  review_ok=1
+  for bash_contract in governanca/sdd-hook-claude.sh governanca/sdd-guard.sh evals/run-evals.sh; do
+    grep -Fq '4.4' "$root/$bash_contract" || review_ok=0
+  done
+  if [ "$review_ok" -eq 1 ]; then
+    report PASS "EVAL-068" "REVIEW-034 exige Bash 4.4"
+  else
+    report FAIL "EVAL-068" "REVIEW-034 exige Bash 4.4" "entrypoint sem contrato 4.4"
+  fi
+
+  # EVAL-069 / REVIEW-035 — troca explícita de prefixo remove adapters antigos.
+  install_rc=0
+  prefix_contract_ok=0
+  if [ -x "$root/install.sh" ]; then
+    prefix_project="$fixture_root/ev069-prefix-project"
+    mkdir -p "$prefix_project"
+    SDD_PREFIX=antigo "$root/install.sh" --project "$prefix_project" --tools codex \
+      --skip-compozy >/dev/null 2>&1 || install_rc=$?
+    if [ "$install_rc" -eq 0 ]; then
+      failing_bin="$fixture_root/ev069-failing-bin"
+      failure_marker="$fixture_root/ev069-rm-failed"
+      mkdir -p "$failing_bin"
+      printf '#!/bin/sh\ncase "$*" in *antigo*) if [ ! -e "%s" ]; then /usr/bin/touch "%s"; exit 77; fi;; esac\nexec /usr/bin/rm "$@"\n' \
+        "$failure_marker" "$failure_marker" >"$failing_bin/rm"
+      chmod 0755 "$failing_bin/rm"
+      failed_migration_rc=0
+      PATH="$failing_bin:/usr/bin:/bin" SDD_PREFIX=novo "$root/install.sh" \
+        --project "$prefix_project" --tools codex --skip-compozy >/dev/null 2>&1 \
+        || failed_migration_rc=$?
+      if [ "$failed_migration_rc" -eq 0 ] \
+         || ! grep -qx 'SDD_PREFIX=antigo' "$prefix_project/sdd/governanca/sdd-template.env"; then
+        install_rc=97
+      else
+        SDD_PREFIX=novo "$root/install.sh" --project "$prefix_project" --tools codex \
+          --skip-compozy >/dev/null 2>&1 || install_rc=$?
+      fi
+    fi
+    if [ "$install_rc" -eq 0 ] \
+       && [ ! -e "$prefix_project/.agents/skills/antigo-iniciar-incremento" ] \
+       && [ ! -e "$prefix_project/.codex/agents/antigo-qa.toml" ] \
+       && [ -s "$prefix_project/.agents/skills/novo-iniciar-incremento/SKILL.md" ] \
+       && grep -qx 'SDD_PREFIX=novo' "$prefix_project/sdd/governanca/sdd-template.env"; then
+      prefix_contract_ok=1
+    fi
+  elif grep -q $'^capability\tprefix_migration\t1$' "$root/.sdd-template/manifest-v1.tsv"; then
+    prefix_contract_ok=1
+  fi
+  if [ "$prefix_contract_ok" -eq 1 ]; then
+    report PASS "EVAL-069" "REVIEW-035 migra prefixo sem adapters órfãos"
+  else
+    report FAIL "EVAL-069" "REVIEW-035 migra prefixo sem adapters órfãos" "rc=$install_rc"
+  fi
+
+  # EVAL-070 / REVIEW-036 — documentação distingue preservação de atualização.
+  docs_contract_ok=0
+  if [ -f "$root/README.md" ] \
+     && ! grep -Fq 'guard e evals sem sobrescrever customizações' "$root/README.md" \
+     && grep -Fq 'backup prévio de divergências locais' "$root/README.md"; then
+    docs_contract_ok=1
+  elif grep -q $'^capability\tmanaged_overwrite_documented\t1$' \
+       "$root/.sdd-template/manifest-v1.tsv"; then
+    docs_contract_ok=1
+  fi
+  if [ "$docs_contract_ok" -eq 1 ]; then
+    report PASS "EVAL-070" "REVIEW-036 documenta sobrescrita gerenciada com backup"
+  else
+    report FAIL "EVAL-070" "REVIEW-036 documenta sobrescrita gerenciada com backup" "promessa incorreta"
+  fi
+
+  # EVAL-071 / REVIEW-037 — o bundle de origem sem workflow é incompleto.
+  source_workflow_ok=0
+  if [ -f "$root/install.sh" ]; then
+    source_contract="$(sed -n '/^src_is_complete()/,/^}/p' "$root/install.sh")"
+    grep -Fq '.github/workflows/sdd-guard.yml' <<<"$source_contract" && source_workflow_ok=1
+  elif grep -q $'^capability\tsource_workflow_required\t1$' \
+       "$root/.sdd-template/manifest-v1.tsv"; then
+    source_workflow_ok=1
+  fi
+  if [ "$source_workflow_ok" -eq 1 ]; then
+    report PASS "EVAL-071" "REVIEW-037 exige workflow no source bundle"
+  else
+    report FAIL "EVAL-071" "REVIEW-037 exige workflow no source bundle" "workflow não obrigatório"
+  fi
+
+  # EVAL-072 — recipes e scripts locais não atravessam o hook como se fossem
+  # comandos de leitura; o candidato só seria executado após exit 0.
+  p="$(new_fixture ev072)"
+  cp "$root/governanca/sdd-guard.sh" "$p/sdd/governanca/sdd-guard.sh"
+  cp "$root/governanca/sdd-hook-claude.sh" "$p/sdd/governanca/sdd-hook-claude.sh"
+  chmod 0755 "$p/sdd/governanca/sdd-guard.sh" "$p/sdd/governanca/sdd-hook-claude.sh"
+  printf 'test:\n\t@touch review072-marker\n' >"$p/Makefile"
+  payload="$fixture_root/ev072-make.json"
+  write_hook_payload "$payload" 'make test'
+  hook_rc=0
+  (cd "$p" && sdd/governanca/sdd-hook-claude.sh <"$payload" >/dev/null 2>&1) || hook_rc=$?
+  if [ "$hook_rc" -eq 0 ]; then (cd "$p" && make test >/dev/null 2>&1); fi
+  package_rc=0
+  payload="$fixture_root/ev072-npm.json"
+  write_hook_payload "$payload" 'npm test'
+  (cd "$p" && sdd/governanca/sdd-hook-claude.sh <"$payload" >/dev/null 2>&1) || package_rc=$?
+  if [ "$hook_rc" -eq 2 ] && [ "$package_rc" -eq 2 ] && [ ! -e "$p/review072-marker" ]; then
+    report PASS "EVAL-072" "recipes e scripts locais são bloqueados fail-closed"
+  else
+    report FAIL "EVAL-072" "recipes e scripts locais são bloqueados fail-closed" \
+      "make_rc=$hook_rc package_rc=$package_rc"
+  fi
+
+  # EVAL-073 — o executor recebe somente o caso selecionado e nunca os IDs
+  # usados exclusivamente pelo oracle independente.
+  sanitized_catalog="$fixture_root/ev073-executor-catalog.yaml"
+  if write_executor_catalog "$CATALOG" EVAL-001 "$sanitized_catalog" \
+     && grep -Fq 'id: EVAL-001' "$sanitized_catalog" \
+     && ! grep -Eq '^    (criteria|expect|forbid):' "$sanitized_catalog" \
+     && ! grep -Fq 'id: EVAL-003' "$sanitized_catalog"; then
+    report PASS "EVAL-073" "catálogo do executor não revela critérios do judge"
+  else
+    report FAIL "EVAL-073" "catálogo do executor não revela critérios do judge" \
+      "sanitização incompleta"
+  fi
 }
 
 eval_tier1_filtered() {
@@ -1300,31 +1612,61 @@ run_with_timeout() {
 run_prompt_command() {
   local command_string="$1" prompt="$2" workspace="$3" output_dir="$4"
   local hidden_project="$5" sandbox_home="$6" input_dir="${7:-}" bwrap_bin
-  local command_name command_path command_dir clean_path env_name
-  local -a sandbox_args
+  local command_name command_path clean_path env_name command_file system_path system_target
+  local sealed_command_dir sealed_command rc=0
+  local -a sandbox_args command_parts command_args
   bwrap_bin="$(command -v bwrap 2>/dev/null || true)"
   [ -n "$bwrap_bin" ] || return 126
-  command_name="$(python3 - "$command_string" <<'PY'
+  command_file="$(mktemp "$fixture_root/tier2-command.XXXXXX")" || return 127
+  if ! python3 - "$command_string" >"$command_file" <<'PY'
 import shlex
 import sys
 
 parts = shlex.split(sys.argv[1])
 if not parts:
     raise SystemExit(1)
-print(parts[0])
+for part in parts:
+    sys.stdout.buffer.write(part.encode("utf-8") + b"\0")
 PY
-)" || return 127
+  then
+    rm -f "$command_file"
+    return 127
+  fi
+  command_parts=()
+  mapfile -d '' -t command_parts <"$command_file" || {
+    rm -f "$command_file"
+    return 127
+  }
+  rm -f "$command_file"
+  [ "${#command_parts[@]}" -gt 0 ] || return 127
+  command_name="${command_parts[0]}"
+  command_args=("${command_parts[@]:1}")
   command_path="$(command -v -- "$command_name" 2>/dev/null || true)"
   [ -n "$command_path" ] || return 127
   case "$command_path" in
     /*) ;;
     *) command_path="$(pwd -P)/$command_path" ;;
   esac
-  command_dir="$(cd "$(dirname "$command_path")" 2>/dev/null && pwd -P)" || return 127
+  command_path="$(python3 - "$command_path" <<'PY'
+import os
+import sys
+print(os.path.realpath(sys.argv[1]))
+PY
+)" || return 127
+  [ -f "$command_path" ] && [ ! -L "$command_path" ] && [ -x "$command_path" ] || return 127
   case "$command_path" in "$hidden_project"|"$hidden_project"/*) return 125 ;; esac
-  clean_path="$command_dir:/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin"
+  sealed_command_dir="$(mktemp -d "$fixture_root/tier2-agent.XXXXXX")" || return 127
+  sealed_command="$sealed_command_dir/sdd-eval-agent"
+  if ! cp -- "$command_path" "$sealed_command" || ! chmod 0555 "$sealed_command_dir" "$sealed_command"; then
+    chmod 0755 "$sealed_command_dir" 2>/dev/null || true
+    rm -f "$sealed_command"
+    rmdir "$sealed_command_dir" 2>/dev/null || true
+    return 127
+  fi
+  clean_path="$sealed_command_dir:/usr/bin:/bin"
   sandbox_args=(
-    --ro-bind / /
+    --ro-bind /usr /usr
+    --ro-bind /etc /etc
     --tmpfs /tmp
     --chmod 0555 /tmp
     --tmpfs /run
@@ -1334,7 +1676,7 @@ PY
     --bind "$workspace" "$workspace"
     --bind "$output_dir" "$output_dir"
     --bind "$sandbox_home" "$sandbox_home"
-    --ro-bind "$command_dir" "$command_dir"
+    --ro-bind "$sealed_command_dir" "$sealed_command_dir"
     --proc /proc
     --dev /dev
     --unshare-pid
@@ -1349,20 +1691,28 @@ PY
     --setenv TMPDIR "$output_dir"
     --setenv LANG C.UTF-8
   )
-  case "$hidden_project" in /tmp/*|/home/*|/root/*) ;; *) sandbox_args+=(--tmpfs "$hidden_project") ;; esac
+  # Não monte `/`: além do projeto oculto, isso revelaria /data, /opt e os
+  # diretórios irmãos do executável. Somente o runtime do sistema é exposto.
+  for system_path in /bin /lib /lib64; do
+    if [ -L "$system_path" ]; then
+      system_target="$(readlink "$system_path")" || return 127
+      sandbox_args+=(--symlink "$system_target" "$system_path")
+    elif [ -d "$system_path" ]; then
+      sandbox_args+=(--ro-bind "$system_path" "$system_path")
+    fi
+  done
   if [ -n "$input_dir" ]; then
     sandbox_args+=(--ro-bind "$input_dir" "$input_dir")
   fi
-  for env_name in SDD_EVAL_CASE_ID SDD_EVAL_OUTPUT_DIR SDD_EVAL_EVIDENCE SDD_EVAL_CRITERIA SDD_EVAL_ROLE; do
+  for env_name in SDD_EVAL_CASE_ID SDD_EVAL_OUTPUT_DIR SDD_EVAL_EVIDENCE SDD_EVAL_CRITERIA SDD_EVAL_EXECUTOR_CATALOG SDD_EVAL_ROLE; do
     if [ "${!env_name+x}" = x ]; then sandbox_args+=(--setenv "$env_name" "${!env_name}"); fi
   done
-  run_with_timeout "$EVAL_TIMEOUT" "$bwrap_bin" "${sandbox_args[@]}" bash -c '
-    command_string=$1
-    prompt=$2
-    eval "set -- $command_string"
-    [ "$#" -gt 0 ] || exit 127
-    exec "$@" "$prompt"
-  ' run-evals "$command_string" "$prompt"
+  run_with_timeout "$EVAL_TIMEOUT" "$bwrap_bin" "${sandbox_args[@]}" \
+    "$sealed_command" "${command_args[@]}" "$prompt" || rc=$?
+  chmod 0755 "$sealed_command_dir" 2>/dev/null || true
+  rm -f "$sealed_command"
+  rmdir "$sealed_command_dir" 2>/dev/null || true
+  return "$rc"
 }
 
 parse_judge_result() {
@@ -1483,6 +1833,58 @@ copy_eval_workspace() {
   git -C "$destination" commit -qm "isolated eval workspace" || return 1
 }
 
+write_executor_catalog() {
+  local source_catalog="$1" wanted_id="$2" destination="$3"
+  python3 -I - "$source_catalog" "$wanted_id" "$destination" <<'PY'
+import pathlib
+import re
+import sys
+
+source = pathlib.Path(sys.argv[1])
+wanted = sys.argv[2]
+destination = pathlib.Path(sys.argv[3])
+selected = []
+inside = False
+include_section = False
+allowed = {"name", "mode", "step", "input", "fixture"}
+for line in source.read_text(encoding="utf-8").splitlines(keepends=True):
+    case_match = re.match(r"^  - id:\s*(\S+)\s*$", line.rstrip("\n"))
+    if case_match:
+        if inside:
+            break
+        if case_match.group(1) == wanted:
+            inside = True
+            selected.append(line)
+        continue
+    if not inside:
+        continue
+    key_match = re.match(r"^    ([A-Za-z0-9_-]+):", line)
+    if key_match:
+        include_section = key_match.group(1) in allowed
+    if include_section:
+        selected.append(line)
+
+if not selected:
+    raise SystemExit(f"case not found: {wanted}")
+payload = "# Catálogo sanitizado: sem critérios, expect ou forbid.\ncases:\n" + "".join(selected)
+if re.search(r"^    (?:criteria|expect|forbid):", payload, re.MULTILINE):
+    raise SystemExit("sanitization failure")
+destination.parent.mkdir(parents=True, exist_ok=True)
+destination.write_text(payload, encoding="utf-8")
+PY
+}
+
+seal_executor_workspace_history() {
+  local workspace="$1"
+  case "$workspace" in /tmp/sdd-eval-executor-workspace.*) ;; *) return 1 ;; esac
+  rm -rf "$workspace/.git" || return 1
+  git -C "$workspace" init -q || return 1
+  git -C "$workspace" config user.email eval@local || return 1
+  git -C "$workspace" config user.name sdd-eval || return 1
+  git -C "$workspace" add -A >/dev/null || return 1
+  git -C "$workspace" commit -qm "sanitized executor workspace" || return 1
+}
+
 eval_tier2() {
   local spec id name desc out_dir evidence executor_prompt judge_prompt executor_rc judge_rc
   local parsed parse_rc verdict reason project_root executor_workspace judge_workspace
@@ -1532,15 +1934,23 @@ eval_tier2() {
         ;;
       *)
         executor_catalog="$executor_workspace/.sdd-eval-catalog.yaml"
-        cp -p "$CATALOG" "$executor_catalog"
         ;;
     esac
+    write_executor_catalog "$CATALOG" "$id" "$executor_catalog" || {
+      report FAIL "$id" "$desc" "não foi possível sanitizar o catálogo do executor"
+      continue
+    }
+    seal_executor_workspace_history "$executor_workspace" || {
+      report FAIL "$id" "$desc" "não foi possível selar o histórico sanitizado do executor"
+      continue
+    }
     evidence="$executor_output/evidencia.md"
     executor_prompt="Execute o caso $id ($name): $desc. Leia o caso em $executor_catalog, execute a etapa SDD no workspace descartável atual e registre fatos observáveis em $evidence. Evidência não equivale a PASS; não produza verdict."
     executor_rc=0
     (
       export SDD_EVAL_CASE_ID="$id" SDD_EVAL_OUTPUT_DIR="$executor_output" \
-        SDD_EVAL_EVIDENCE="$evidence" SDD_EVAL_ROLE="executor"
+        SDD_EVAL_EVIDENCE="$evidence" SDD_EVAL_EXECUTOR_CATALOG="$executor_catalog" \
+        SDD_EVAL_ROLE="executor"
       unset SDD_EVAL_CRITERIA
       run_prompt_command "$AGENT_CMD" "$executor_prompt" "$executor_workspace" \
         "$executor_output" "$project_root" "$executor_home"

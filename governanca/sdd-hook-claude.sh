@@ -1,4 +1,36 @@
-#!/usr/bin/env bash
+#!/bin/sh
+# Bootstrap POSIX: /bin/sh não carrega BASH_ENV em modo não interativo. Só
+# depois de limpar todo o ambiente iniciamos um Bash absoluto do trust root.
+# O marcador é posicional porque uma variável herdada seria forjável.
+IFS="$(printf ' \t\nx')"; IFS="${IFS%x}"
+if [ "${1:-}" != "__sdd_hook_clean_bootstrap_v1__" ]; then
+  sdd_hook_env=/usr/bin/env
+  [ -x "$sdd_hook_env" ] || {
+    printf 'SDD HOOK (bloqueado): /usr/bin/env confiavel e obrigatorio\n' >&2
+    exit 2
+  }
+  sdd_hook_bash=""
+  for sdd_hook_candidate in /usr/bin/bash /bin/bash; do
+    [ -x "$sdd_hook_candidate" ] || continue
+    if "$sdd_hook_env" -i PATH=/usr/bin:/bin HOME=/tmp TMPDIR=/tmp \
+      "$sdd_hook_candidate" --noprofile --norc -c \
+      '(( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 4) ))' \
+      >/dev/null 2>&1; then
+      sdd_hook_bash="$sdd_hook_candidate"
+      break
+    fi
+  done
+  [ -n "$sdd_hook_bash" ] || {
+    printf 'SDD HOOK (bloqueado): Bash >= 4.4 confiavel e obrigatorio\n' >&2
+    exit 2
+  }
+  exec "$sdd_hook_env" -i PATH=/usr/bin:/bin HOME=/tmp TMPDIR=/tmp LANG=C.UTF-8 \
+    SDD_FEATURE="${SDD_FEATURE:-}" SDD_AUTH_TARGET="${SDD_AUTH_TARGET:-}" \
+    SDD_POLICIES_FILE="${SDD_POLICIES_FILE:-}" \
+    SDD_TRUSTED_POLICIES="${SDD_TRUSTED_POLICIES:-}" \
+    "$sdd_hook_bash" --noprofile --norc "$0" __sdd_hook_clean_bootstrap_v1__ "$@"
+fi
+shift
 # Hook PreToolUse do Claude Code. Toda ambiguidade de parsing, guard ou escrita
 # potencialmente mutante e tratada como bloqueio (exit 2).
 set -euo pipefail
@@ -7,6 +39,11 @@ block() {
   printf 'SDD HOOK (bloqueado): %s\n' "$*" >&2
   exit 2
 }
+
+if [ "${BASH_VERSINFO[0]}" -lt 4 ] \
+   || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -lt 4 ]; }; then
+  block "Bash >= 4.4 e obrigatorio"
+fi
 
 input="$(cat)" || block "nao foi possivel ler o JSON do hook"
 root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
@@ -21,7 +58,7 @@ tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/sdd-hook.XXXXXX")" \
 trap 'rm -rf "$tmpdir"' EXIT
 meta="$tmpdir/meta"
 
-if ! printf '%s' "$input" | python3 -c '
+if ! printf '%s' "$input" | python3 -I -c '
 import json
 import os
 import sys
@@ -180,7 +217,7 @@ case "$tool" in
       esac
       [ -f "$actual_path" ] && [ ! -L "$actual_path" ] \
         || block "$tool exige arquivo regular existente para calcular conteúdo final"
-      if ! python3 - "$actual_path" "$tmpdir/edit-plan.json" "$tmpdir/final-content" <<'PY'
+      if ! python3 -I - "$actual_path" "$tmpdir/edit-plan.json" "$tmpdir/final-content" <<'PY'
 import json
 import pathlib
 import sys
@@ -265,7 +302,7 @@ resolve_authority_feature() {
 
 if [ "$tool" = Bash ]; then
   analysis="$tmpdir/analysis"
-  if ! python3 -c '
+  if ! python3 -I -c '
 import os
 import re
 import shlex
@@ -273,6 +310,7 @@ import shutil
 import sys
 
 command = sys.argv[1]
+project_root = os.path.realpath(sys.argv[2])
 records = []
 actions = set()
 
@@ -303,7 +341,7 @@ mutator_words = re.compile(
     r"(?:\s|$)"
 )
 authority_words = bool(actions)
-has_shell_control = bool(re.search(r"[;&|<>\n]", command))
+has_shell_control = bool(re.search(r"[;&|<>\n()`]", command))
 if has_shell_control:
     add("B", "comando composto/redirecionado nao e analisavel com seguranca")
     for kind, value in records:
@@ -321,8 +359,10 @@ def discard_assignments(items):
         name, _, _ = items[0].partition("=")
         if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
             break
-        if name in {"PATH", "BASH_ENV", "ENV", "SHELLOPTS", "CDPATH", "GLOBIGNORE", "LD_PRELOAD", "PYTHONPATH", "NODE_OPTIONS"}:
-            add("B", f"alteracao de ambiente sensivel nao e permitida: {name}")
+        # Uma denylist de variáveis nunca é completa: Git, runtimes e loaders
+        # ganham novos hooks de configuração. O hook aceita somente o ambiente
+        # limpo criado pelo bootstrap e recusa toda atribuição inline.
+        add("B", f"alteracao de ambiente no comando nao e permitida: {name}")
         items.pop(0)
 
 discard_assignments(words)
@@ -397,36 +437,57 @@ if words:
 
     cwd = os.path.realpath(os.getcwd())
     resolved_executable = os.path.realpath(invoked) if "/" in invoked else shutil.which(invoked)
+    safe_readonly = {
+        "echo", "printf", "true", "false", "test", "[", "pwd", "cd", "read", "type", "umask",
+        "ls", "cat", "head", "tail", "wc", "grep", "rg", "cut", "sort", "uniq", "comm",
+        "cmp", "diff", "stat", "file", "du", "df", "ps", "dirname", "basename", "realpath",
+        "readlink",
+    }
+    known_analyzable = safe_readonly | simple_all | simple_last | simple_all_with_mode | unsafe | {
+        "mv", "ln", "sed", "find", "tar", "zip", "unzip", "git", "gh", "kubectl", "helm",
+        "terraform", "tofu", "docker", "aws", "gcloud", "az", "flyctl", "vercel", "netlify",
+        "heroku", "railway", "npm", "pnpm", "yarn", "pip", "pip3", "gem", "cargo", "go",
+        "make", "just", "task", "sdd-guard.sh", "sdd-fluxo.sh", "sdd-metricas.sh",
+    }
     trusted_local = {
-            os.path.realpath(os.path.join(cwd, "sdd", "governanca", name))
+            os.path.realpath(os.path.join(project_root, "sdd", "governanca", name))
             for name in {"sdd-guard.sh", "sdd-fluxo.sh", "sdd-metricas.sh"}
         } | {
-            os.path.realpath(os.path.join(cwd, "governanca", name))
+            os.path.realpath(os.path.join(project_root, "governanca", name))
             for name in {"sdd-guard.sh", "sdd-fluxo.sh", "sdd-metricas.sh"}
         }
     if resolved_executable:
         resolved_executable = os.path.realpath(resolved_executable)
         try:
-            inside_worktree = os.path.commonpath((cwd, resolved_executable)) == cwd
+            inside_worktree = os.path.commonpath((project_root, resolved_executable)) == project_root
         except ValueError:
             inside_worktree = True
         if inside_worktree and resolved_executable not in trusted_local:
             add("B", "executavel local arbitrario nao e analisavel com seguranca")
+    elif executable not in known_analyzable:
+        add("B", f"executavel nao resolvido nao e analisavel com seguranca: {executable}")
 
     if executable == "git":
         subcommand = ""
-        skip_next = False
         for arg in args:
-            if skip_next:
-                skip_next = False
+            if arg == "--":
                 continue
-            if arg in {"-C", "-c", "--git-dir", "--work-tree", "--namespace"}:
-                skip_next = True
+            if arg == "--no-pager":
                 continue
             if arg.startswith("-"):
-                continue
+                add("B", f"opcao global do git nao esta na allowlist: {arg}")
+                break
             subcommand = arg
             break
+        helper_options = {
+            "--ext-diff", "--textconv", "--paginate", "--open-files-in-pager",
+            "--exec-path", "--upload-pack", "--receive-pack", "--output",
+        }
+        for arg in args:
+            option_name = arg.split("=", 1)[0]
+            if option_name in helper_options or option_name == "--config-env" \
+                    or arg == "-c" or arg.startswith("-c"):
+                add("B", f"opcao git pode executar helper ou escrever fora do gate: {arg}")
         if subcommand in {"commit", "push", "merge"}:
             add("A", subcommand)
         if subcommand in {"checkout", "switch", "restore", "reset", "clean", "apply", "am", "cherry-pick", "rebase", "pull", "merge"}:
@@ -438,6 +499,10 @@ if words:
             position = args.index("pr")
             if position + 1 < len(args) and args[position + 1] in {"create", "merge"}:
                 add("A", "pull_request" if args[position + 1] == "create" else "merge")
+            else:
+                add("B", "gh fora de pr create/merge nao esta na allowlist")
+        else:
+            add("B", "gh fora de pr create/merge nao esta na allowlist")
     elif executable in simple_all:
         targets = [arg for arg in args if not arg.startswith("-")]
     elif executable == "mv":
@@ -496,64 +561,56 @@ if words:
     elif executable in unsafe:
         add("B", f"{executable} pode escrever paths dinamicamente")
     elif executable in {"npm", "pnpm", "yarn", "pip", "pip3", "gem", "cargo", "go"}:
-        mutating_subcommands = {"install", "add", "remove", "uninstall", "update", "upgrade"}
-        if any(arg in mutating_subcommands for arg in args):
-            add("B", f"{executable} executa mutacao de dependencias nao analisavel com seguranca")
         if "publish" in args or any(re.search(r"(?:deploy|publish|release|promote|migrate|rollback)", arg, re.I) for arg in args):
             add("A", "production")
+        if args not in (["--version"], ["-v"]):
+            add("B", f"{executable} pode executar scripts ou mutacoes nao analisaveis com seguranca")
     elif executable == "kubectl":
-        if any(arg in {"apply", "create", "delete", "edit", "patch", "replace", "scale", "set", "taint", "cordon", "uncordon", "drain"} for arg in args):
+        production = any(arg in {"apply", "create", "delete", "edit", "patch", "replace", "scale", "set", "taint", "cordon", "uncordon", "drain"} for arg in args)
+        if production:
             add("A", "production")
         if "rollout" in args and any(arg in {"restart", "resume", "pause", "undo"} for arg in args):
             add("A", "production")
+            production = True
+        if not production and not any(arg in {"get", "describe", "logs", "explain", "version", "api-resources", "api-versions", "cluster-info", "diff", "auth", "top"} for arg in args):
+            add("B", "subcomando kubectl nao esta na allowlist")
     elif executable == "helm":
-        if any(arg in {"install", "upgrade", "uninstall", "rollback"} for arg in args):
+        production = any(arg in {"install", "upgrade", "uninstall", "rollback"} for arg in args)
+        if production:
             add("A", "production")
+        elif not any(arg in {"list", "status", "history", "show", "get", "version", "env", "search"} for arg in args):
+            add("B", "subcomando helm nao esta na allowlist")
     elif executable in {"terraform", "tofu"}:
-        if any(arg in {"apply", "destroy", "import", "taint", "untaint"} for arg in args):
+        production = any(arg in {"apply", "destroy", "import", "taint", "untaint"} for arg in args)
+        if production:
             add("A", "production")
         if "state" in args and any(arg in {"mv", "rm", "push"} for arg in args[args.index("state") + 1:]):
             add("A", "production")
+            production = True
+        if not production and not any(arg in {"plan", "show", "validate", "version", "output", "graph", "providers"} for arg in args):
+            add("B", f"subcomando {executable} nao esta na allowlist")
     elif executable == "docker":
-        if any(arg in {"push", "service", "stack"} for arg in args):
+        production = any(arg in {"push", "service", "stack"} for arg in args)
+        if production:
             add("A", "production")
         if "compose" in args and any(arg in {"up", "down", "push", "restart"} for arg in args[args.index("compose") + 1:]):
             add("A", "production")
+            production = True
+        if not production and not any(arg in {"ps", "images", "inspect", "logs", "version", "info", "stats", "top", "history", "diff"} for arg in args):
+            add("B", "subcomando docker nao esta na allowlist")
     elif executable in {"make", "just", "task"}:
         if any(re.search(r"(?:deploy|publish|release|promote|migrate|rollback)", arg, re.I) for arg in args):
             add("A", "production")
+        add("B", f"{executable} executa receita local nao analisavel com seguranca")
     elif executable in {"aws", "gcloud", "az", "flyctl", "vercel", "netlify", "heroku", "railway"}:
         add("B", f"{executable} exige integração explícita de autoridade; comando genérico bloqueado")
     elif executable in {"sdd-guard.sh", "sdd-fluxo.sh", "sdd-metricas.sh"}:
         if any(".." in arg.split("/") for arg in args):
             add("B", "argumento de governanca contem traversal")
+    elif executable in safe_readonly:
+        pass
     else:
-        nested_mutators = simple_all | simple_last | simple_all_with_mode | unsafe | {
-            "mv", "ln", "sed", "find", "tar", "zip", "unzip", "git", "gh", "kubectl", "helm",
-            "terraform", "tofu", "docker", "aws", "gcloud", "az", "flyctl", "vercel", "netlify",
-            "heroku", "railway", "npm", "pnpm", "yarn", "make", "just", "task"
-        }
-        if any(os.path.basename(arg) in nested_mutators for arg in args):
-            add("B", "wrapper desconhecido encapsula comando mutante")
-        for arg in args:
-            if any(character.isspace() for character in arg):
-                try:
-                    nested_words = shlex.split(arg, posix=True)
-                except ValueError:
-                    nested_words = []
-                if nested_words and os.path.basename(nested_words[0]) in nested_mutators:
-                    add("B", "wrapper desconhecido encapsula comando mutante")
-        if re.search(r"(?:deploy|publish|release|promote|migrate|rollback)", executable, re.I):
-            add("B", "executavel de entrega desconhecido exige integracao explicita")
-        if "/" in words[0] or executable.endswith((".sh", ".py", ".js", ".rb")):
-            add("B", "executável local arbitrário não é analisável com segurança")
-        for arg in args:
-            if any(character.isspace() for character in arg):
-                if "sdd/contratos" in arg.replace("/./", "/"):
-                    add("B", "argumento composto referencia contrato vivo")
-                continue
-            if "/" in arg or arg.startswith((".", "~")):
-                targets.append(arg)
+        add("B", f"executavel fora da allowlist nao e analisavel com seguranca: {executable}")
 
     for target in targets:
         components = target.split("/")
@@ -567,7 +624,7 @@ if words:
 
 for kind, value in records:
     sys.stdout.buffer.write(kind.encode() + b"\0" + value.encode() + b"\0")
-' "$command" >"$analysis"; then
+' "$command" "$root" >"$analysis"; then
     block "falha na analise fail-closed do comando Bash"
   fi
 
@@ -589,6 +646,8 @@ for kind, value in records:
     esac
   done
 
+  [ -z "$block_reason" ] || block "$block_reason"
+
   if [ "${#authority_actions[@]}" -gt 0 ]; then
     authority_feature="$(resolve_authority_feature)"
     authority_target="${SDD_AUTH_TARGET:-$(git -C "$root" branch --show-current 2>/dev/null || true)}"
@@ -602,7 +661,6 @@ for kind, value in records:
     done
   fi
 
-  [ -z "$block_reason" ] || block "$block_reason"
   for target in "${targets[@]}"; do
     guard_or_block protect "$target"
   done

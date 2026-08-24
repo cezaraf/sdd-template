@@ -801,3 +801,103 @@ cases:
     step: 05
     expect:
       hook_exit: 2
+
+  - id: EVAL-061
+    name: review-027-shell-composto-sem-execucao-pre-gate
+    mode: deterministico
+    step: 05
+    expect:
+      hook_exit: 2
+      mutation_executed: false
+
+  - id: EVAL-062
+    name: review-028-ambiente-e-source-sem-execucao-pre-gate
+    mode: deterministico
+    step: 05
+    expect:
+      hook_exit: 2
+      injected_code_executed: false
+
+  - id: EVAL-063
+    name: review-029-helpers-do-checker-vem-de-trust-root
+    mode: deterministico
+    step: 05
+    fixture:
+      inherited_path: hostile_but_synthetic
+    expect:
+      authority: allowed
+      hostile_helper_executed: false
+
+  - id: EVAL-064
+    name: review-030-evidence-sha-inclui-ignorados-materiais
+    mode: deterministico
+    step: 06
+    fixture:
+      ignored_audit_artifact: true
+    expect:
+      pre_implement: blocked
+
+  - id: EVAL-065
+    name: review-031-ancestral-do-trust-root-e-governanca
+    mode: deterministico
+    step: 05
+    expect:
+      authority_gate: governance_change
+
+  - id: EVAL-066
+    name: review-032-actions-fixadas-por-sha
+    mode: deterministico
+    step: 05
+    expect:
+      mutable_action_refs: 0
+
+  - id: EVAL-067
+    name: review-033-tier2-monta-apenas-executavel-selado
+    mode: deterministico
+    step: 05
+    expect:
+      sibling_directory_mounted: false
+
+  - id: EVAL-068
+    name: review-034-contrato-bash-4-4
+    mode: deterministico
+    step: 05
+    expect:
+      bash_minimum: 4.4
+
+  - id: EVAL-069
+    name: review-035-prefixo-nao-deixa-adapters-orfaos
+    mode: deterministico
+    step: 05
+    expect:
+      old_adapters: absent
+      new_adapters: present
+
+  - id: EVAL-070
+    name: review-036-readme-explica-atualizacao-gerenciada
+    mode: deterministico
+    step: 05
+    expect:
+      managed_overwrite_documented: true
+
+  - id: EVAL-071
+    name: review-037-source-bundle-exige-workflow
+    mode: deterministico
+    step: 05
+    expect:
+      workflow_required: true
+
+  - id: EVAL-072
+    name: receitas-locais-sao-bloqueadas-fail-closed
+    mode: deterministico
+    step: 05
+    expect:
+      hook_exit: 2
+      mutation_executed: false
+
+  - id: EVAL-073
+    name: executor-nao-recebe-criterios-do-judge
+    mode: deterministico
+    step: 05
+    expect:
+      executor_catalog_sanitized: true

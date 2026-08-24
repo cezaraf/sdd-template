@@ -15,6 +15,7 @@ DRY_RUN=0
 PREFIX="${SDD_PREFIX-cz}"
 PREFIX_EXPLICIT=0
 [ "${SDD_PREFIX+x}" = "x" ] && PREFIX_EXPLICIT=1
+MIGRATE_FROM_PREFIX=""
 
 PROMPTS="00-iniciar-incremento-sdd 01-criar-prd 02-criar-techspec 03-criar-tasks \
 04-auditar-especificacao 05-instalar-rules-skills 06-executar-task \
@@ -35,6 +36,11 @@ incomplete() {
   printf '\033[1;31mINCOMPLETA\033[0m %s\n' "$*" >&2
   exit 3
 }
+
+if [ "${BASH_VERSINFO[0]}" -lt 4 ] \
+   || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -lt 4 ]; }; then
+  die "Bash >= 4.4 é obrigatório para o núcleo SDD"
+fi
 
 validate_prefix() {
   local value="$1"
@@ -484,19 +490,43 @@ else
   CANON_REF="sdd/prompts"
 fi
 
-if [ "$PREFIX_EXPLICIT" -eq 0 ]; then
-  if [ "$SCOPE" = "project" ]; then
-    prefix_config="$PROJECT_DIR/sdd/governanca/sdd-template.env"
-  else
-    prefix_config="$HOME/.sdd/sdd-template.env"
-  fi
-  if [ -f "$prefix_config" ]; then
-    persisted_prefix="$(read_persisted_prefix "$prefix_config" 2>/dev/null)" \
-      || die "configuração persistida de SDD_PREFIX inválida: $prefix_config"
-    PREFIX="$persisted_prefix"
-    validate_prefix "$PREFIX"
-  fi
+if [ "$SCOPE" = "project" ]; then
+  prefix_config="$PROJECT_DIR/sdd/governanca/sdd-template.env"
+else
+  prefix_config="$HOME/.sdd/sdd-template.env"
 fi
+persisted_prefix=""
+if [ -e "$prefix_config" ]; then
+  [ -f "$prefix_config" ] && [ ! -L "$prefix_config" ] \
+    || die "configuração persistida de SDD_PREFIX deve ser arquivo regular: $prefix_config"
+  persisted_prefix="$(read_persisted_prefix "$prefix_config" 2>/dev/null)" \
+    || die "configuração persistida de SDD_PREFIX inválida: $prefix_config"
+  validate_prefix "$persisted_prefix"
+fi
+if [ "$PREFIX_EXPLICIT" -eq 0 ] && [ -n "$persisted_prefix" ]; then
+  PREFIX="$persisted_prefix"
+elif [ "$PREFIX_EXPLICIT" -eq 1 ] && [ -n "$persisted_prefix" ] \
+     && [ "$persisted_prefix" != "$PREFIX" ]; then
+  MIGRATE_FROM_PREFIX="$persisted_prefix"
+fi
+
+remove_adapters_for_prefix() {
+  local remove_prefix="$1" active_prefix="$PREFIX" name slug aname
+  [ -n "$remove_prefix" ] || return 0
+  validate_prefix "$remove_prefix"
+  PREFIX="$remove_prefix"
+  for name in $PROMPTS; do
+    slug="$(skill_slug "$name")"
+    run rm -rf "$CLAUDE_SKILLS/$slug" "$CODEX_SKILLS/$slug"
+    run rm -f "$OPENCODE_CMDS/$slug.md"
+  done
+  for name in $AGENT_STEPS; do
+    aname="$(agent_name "$name")"
+    run rm -f "$CLAUDE_AGENTS/$aname.md" "$CODEX_AGENTS/$aname.toml" \
+      "$OPENCODE_AGENTS/$aname.md"
+  done
+  PREFIX="$active_prefix"
+}
 
 if [ "$UNINSTALL" -eq 1 ]; then
   if [ "$SCOPE" = project ]; then
@@ -510,16 +540,10 @@ if [ "$UNINSTALL" -eq 1 ]; then
     uninstall_claude_hooks "$PROJECT_DIR/.claude/settings.json"
   fi
   info "Removendo adaptadores SDD"
-  for name in $PROMPTS; do
-    slug="$(skill_slug "$name")"
-    run rm -rf "$CLAUDE_SKILLS/$slug" "$CODEX_SKILLS/$slug"
-    run rm -f "$OPENCODE_CMDS/$slug.md"
-  done
-  for name in $AGENT_STEPS; do
-    aname="$(agent_name "$name")"
-    run rm -f "$CLAUDE_AGENTS/$aname.md" "$CODEX_AGENTS/$aname.toml" \
-      "$OPENCODE_AGENTS/$aname.md"
-  done
+  remove_adapters_for_prefix "$PREFIX"
+  if [ -n "$persisted_prefix" ] && [ "$persisted_prefix" != "$PREFIX" ]; then
+    remove_adapters_for_prefix "$persisted_prefix"
+  fi
   run rm -rf "$CANON_DIR"
   if [ "$SCOPE" = "project" ] && [ "$DRY_RUN" -eq 0 ]; then
     strip_agents_block "$PROJECT_DIR/AGENTS.md" || true
@@ -528,8 +552,6 @@ if [ "$UNINSTALL" -eq 1 ]; then
   exit 0
 fi
 
-[ "${BASH_VERSINFO[0]}" -ge 4 ] \
-  || die "Bash >= 4 é obrigatório para o núcleo SDD"
 for required_command in awk cmp comm cp cut date dd dirname git grep mktemp \
   python3 sed sort tail tr uniq wc; do
   command -v "$required_command" >/dev/null 2>&1 \
@@ -563,7 +585,8 @@ src_is_complete() {
     governanca/sdd-hook-claude.sh \
     governanca/policies.yaml.example \
     evals/run-evals.sh \
-    evals/cases/core-contracts.yaml; do
+    evals/cases/core-contracts.yaml \
+    .github/workflows/sdd-guard.yml; do
     [ -f "$dir/$name" ] || return 1
   done
 }
@@ -639,11 +662,9 @@ install_managed_bundle() {
   )
   modes=(0755 0755 0755 0755 0755 0644 0644)
 
-  if [ -f "$SRC_DIR/.github/workflows/sdd-guard.yml" ]; then
-    rels+=(.github/workflows/sdd-guard.yml)
-    sources+=("$SRC_DIR/.github/workflows/sdd-guard.yml")
-    modes+=(0644)
-  fi
+  rels+=(.github/workflows/sdd-guard.yml)
+  sources+=("$SRC_DIR/.github/workflows/sdd-guard.yml")
+  modes+=(0644)
 
   mkdir -p "$stage_root"
   for index in "${!rels[@]}"; do
@@ -721,6 +742,9 @@ install_managed_bundle() {
     printf 'manifest\t1\n'
     printf 'ref\t%s\n' "$REF"
     printf 'prefix\t%s\n' "$PREFIX"
+    printf 'capability\tprefix_migration\t1\n'
+    printf 'capability\tmanaged_overwrite_documented\t1\n'
+    printf 'capability\tsource_workflow_required\t1\n'
     for index in "${!rels[@]}"; do
       printf 'file\t%s\t%s\n' "${rels[$index]}" "${digests[$index]}"
     done
@@ -1172,6 +1196,15 @@ EOF
 has_tool claude && install_claude
 has_tool codex && install_codex
 has_tool opencode && install_opencode
+
+# A configuração antiga continua sendo a fonte de retomada até que todos os
+# adapters legados tenham sido removidos. Se a limpeza falhar, a próxima
+# execução ainda descobre MIGRATE_FROM_PREFIX e conclui a mesma migração.
+if [ -n "$MIGRATE_FROM_PREFIX" ]; then
+  info "Finalizando migração de adapters de $MIGRATE_FROM_PREFIX para $PREFIX"
+  remove_adapters_for_prefix "$MIGRATE_FROM_PREFIX"
+fi
+
 [ "$SCOPE" != "global" ] || persist_global_prefix
 
 if [ "$SCOPE" = "project" ]; then

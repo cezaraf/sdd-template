@@ -8,7 +8,10 @@ fail() { printf 'template inválido: %s\n' "$*" >&2; exit 1; }
 
 # O guard/hook canônicos usam arrays associativos/mapfile e parsing JSON
 # fail-closed. Em macOS com Bash 3, a dependência deve falhar explicitamente.
-[ "${BASH_VERSINFO[0]}" -ge 4 ] || fail "Bash >= 4 é obrigatório"
+if [ "${BASH_VERSINFO[0]}" -lt 4 ] \
+   || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -lt 4 ]; }; then
+  fail "Bash >= 4.4 é obrigatório"
+fi
 for command_name in awk cmp comm cp cut git grep mktemp python3 sed sort uniq; do
   command -v "$command_name" >/dev/null 2>&1 \
     || fail "dependência obrigatória ausente: $command_name"
@@ -58,9 +61,10 @@ test -x install.sh || fail "install.sh não executável"
 awk '
   /^src_is_complete\(\)/ { inside=1 }
   inside && /governanca\/policies.yaml.example/ { found=1 }
-  inside && /^}/ { exit(found ? 0 : 1) }
-  END { if (!inside || !found) exit 1 }
-' install.sh || fail "src_is_complete não exige policies.yaml.example"
+  inside && /\.github\/workflows\/sdd-guard.yml/ { workflow=1 }
+  inside && /^}/ { exit(found && workflow ? 0 : 1) }
+  END { if (!inside || !found || !workflow) exit 1 }
+' install.sh || fail "src_is_complete não exige policy e workflow canônicos"
 
 for script in install.sh governanca/sdd-guard.sh governanca/sdd-fluxo.sh \
   governanca/sdd-metricas.sh governanca/sdd-hook-claude.sh \
@@ -92,6 +96,17 @@ grep -q 'set -euo pipefail' "$guard_workflow" || fail "workflow do guard não é
 if grep -q 'continue-on-error:[[:space:]]*true' "$guard_workflow"; then
   fail "workflow do guard permite continue-on-error"
 fi
+pinned_uses_re='^[[:space:]]*(-[[:space:]]*)?uses:[[:space:]]+(\./[^[:space:]#]+|[^[:space:]#]+@[0-9a-f]{40})[[:space:]]*(#.*)?$'
+while IFS= read -r uses_line; do
+  [[ "$uses_line" =~ $pinned_uses_re ]] \
+    || fail "workflow usa action externa sem commit SHA de 40 hex: $uses_line"
+done < <(grep -REh '^[[:space:]]*(-[[:space:]]*)?uses:' .github/workflows || true)
+grep -Rq 'actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683' .github/workflows \
+  || fail "actions/checkout não está pinada no SHA aprovado"
+grep -Fq 'actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684' "$watch_workflow" \
+  || fail "actions/cache/restore não está pinada no SHA aprovado"
+grep -Fq 'actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684' "$watch_workflow" \
+  || fail "actions/cache/save não está pinada no SHA aprovado"
 grep -q 'schedule:' "$watch_workflow" || fail "workflow watch sem agenda"
 grep -q 'PIPESTATUS' "$watch_workflow" || fail "workflow watch perde status do detector no pipe"
 grep -q 'GITHUB_OUTPUT' "$watch_workflow" || fail "workflow watch não publica banda"
@@ -193,6 +208,9 @@ cat >"$mock_agent" <<'SH'
 #!/usr/bin/env bash
 set -eu
 test -z "${SDD_EVAL_CRITERIA+x}"
+test -n "${SDD_EVAL_EXECUTOR_CATALOG:-}"
+test -f "$SDD_EVAL_EXECUTOR_CATALOG"
+! grep -Eq '^    (criteria|expect|forbid):' "$SDD_EVAL_EXECUTOR_CATALOG"
 test -z "${SDD_EVAL_HOST_SENTINEL+x}"
 test ! -e "$HOME/host-secret"
 if { printf 'critério forjado pelo executor\n' >../criteria.txt; } 2>/dev/null; then

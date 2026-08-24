@@ -259,13 +259,18 @@ curl -fsSL .../install.sh | bash -s -- --dry-run
 curl -fsSL .../install.sh | bash -s -- --uninstall
 ```
 
+Requisito de execução: Bash >= 4.4 (o Bash 3 padrão de versões antigas do
+macOS não atende ao guard e ao hook fail-closed).
+
 O instalador:
 
 - copia prompts `00`–`14` e `_comum.md`;
 - gera skills/commands para Claude Code, Codex e OpenCode;
 - registra auditor, revisor e QA como agents isolados;
 - cria estrutura SDD e Compozy;
-- instala templates de policies, guard e evals sem sobrescrever customizações;
+- preserva `policies.yaml` e exemplos criados pelo projeto; o núcleo gerenciado
+  (guard, hook, fluxo, métricas, evals e workflow) é atualizado para a versão
+  canônica, com backup prévio de divergências locais;
 - instala o Compozy quando possível.
 
 ## Comandos

@@ -1,4 +1,36 @@
-#!/usr/bin/env bash
+#!/bin/sh
+# Nasce em /bin/sh para que BASH_ENV e PATH herdados não executem código antes
+# dos gates. O Bash real e todo o ambiente são materializados por trust roots
+# absolutos antes de qualquer git, Python, policy ou checker.
+IFS="$(printf ' \t\nx')"; IFS="${IFS%x}"
+if [ "${1:-}" != "__sdd_guard_clean_bootstrap_v1__" ]; then
+  sdd_guard_env=/usr/bin/env
+  [ -x "$sdd_guard_env" ] || {
+    printf 'SDD GUARD (bloqueado): /usr/bin/env confiavel e obrigatorio\n' >&2
+    exit 2
+  }
+  sdd_guard_bash=""
+  for sdd_guard_candidate in /usr/bin/bash /bin/bash; do
+    [ -x "$sdd_guard_candidate" ] || continue
+    if "$sdd_guard_env" -i PATH=/usr/bin:/bin HOME=/tmp TMPDIR=/tmp \
+      "$sdd_guard_candidate" --noprofile --norc -c \
+      '(( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 4) ))' \
+      >/dev/null 2>&1; then
+      sdd_guard_bash="$sdd_guard_candidate"
+      break
+    fi
+  done
+  [ -n "$sdd_guard_bash" ] || {
+    printf 'SDD GUARD (bloqueado): Bash >= 4.4 confiavel e obrigatorio\n' >&2
+    exit 2
+  }
+  exec "$sdd_guard_env" -i PATH=/usr/bin:/bin HOME=/tmp TMPDIR=/tmp LANG=C.UTF-8 \
+    SDD_FEATURE="${SDD_FEATURE:-}" SDD_AUTH_TARGET="${SDD_AUTH_TARGET:-}" \
+    SDD_POLICIES_FILE="${SDD_POLICIES_FILE:-}" \
+    SDD_TRUSTED_POLICIES="${SDD_TRUSTED_POLICIES:-}" \
+    "$sdd_guard_bash" --noprofile --norc "$0" __sdd_guard_clean_bootstrap_v1__ "$@"
+fi
+shift
 set -euo pipefail
 
 usage() {
@@ -25,6 +57,11 @@ USAGE
 fail()  { printf 'SDD GUARD: %s\n' "$*" >&2; exit 1; }
 fail2() { printf 'SDD GUARD (bloqueado): %s\n' "$*" >&2; exit 2; }
 ok()    { printf 'SDD GUARD: OK - %s\n' "$*"; }
+
+if [ "${BASH_VERSINFO[0]}" -lt 4 ] \
+   || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -lt 4 ]; }; then
+  fail2 "Bash >= 4.4 e obrigatorio"
+fi
 
 [ $# -ge 1 ] || { usage; exit 2; }
 
@@ -321,7 +358,7 @@ dump_list() {
 
 validate_policy_dump_schema() {
   local dump="$1"
-  python3 -c '
+  python3 -I -c '
 import re
 import sys
 
@@ -499,11 +536,53 @@ current_head() {
   printf '%s' "$head"
 }
 
-authority_check_external() {
+trusted_system_binary() {
+  local name="$1" candidate
+  for candidate in "/usr/bin/$name" "/bin/$name"; do
+    # Distribuições podem fornecer coreutils como symlinks administrados pelo
+    # sistema. A autoridade vem do nome absoluto no trust root, não de PATH.
+    [ -e "$candidate" ] && [ -x "$candidate" ] || continue
+    printf '%s' "$candidate"
+    return 0
+  done
+  return 1
+}
+
+authority_check_external() (
   local auth_feature="$1" gate="$2" target="$3"
   local configured resolved resolved_dir expected_sha actual_sha timeout_seconds head rc=0
   local checker_dir checker_copy clean_path env_bin timeout_bin python_bin
+  local cp_bin chmod_bin rm_bin rmdir_bin mktemp_bin sha_bin
   local authority_data authority_path trusted trusted_resolved version autonomy="" decision=""
+
+  # Toda a cadeia que sela e executa o checker usa somente binários do trust
+  # root do sistema. PATH, BASH_ENV e opções de runtimes herdadas não podem
+  # trocar helpers antes da decisão de autoridade.
+  clean_path="/usr/bin:/bin"
+  PATH="$clean_path"
+  export PATH
+  unset BASH_ENV ENV CDPATH GLOBIGNORE LD_PRELOAD LD_LIBRARY_PATH PYTHONPATH \
+    PYTHONHOME NODE_OPTIONS PERL5OPT PERL5LIB RUBYOPT RUBYLIB GIT_CONFIG_SYSTEM \
+    GIT_CONFIG_GLOBAL GIT_CONFIG_COUNT GIT_EXEC_PATH GIT_SSH GIT_SSH_COMMAND \
+    SSH_ASKPASS PROMPT_COMMAND PS4
+  hash -r
+  env_bin="$(trusted_system_binary env)" || {
+    printf 'SDD GUARD: /usr/bin/env ou /bin/env confiavel e obrigatorio\n' >&2
+    return 1
+  }
+  cp_bin="$(trusted_system_binary cp)" || return 1
+  chmod_bin="$(trusted_system_binary chmod)" || return 1
+  rm_bin="$(trusted_system_binary rm)" || return 1
+  rmdir_bin="$(trusted_system_binary rmdir)" || return 1
+  mktemp_bin="$(trusted_system_binary mktemp)" || return 1
+  timeout_bin="$(trusted_system_binary timeout 2>/dev/null || true)"
+  python_bin="$(trusted_system_binary python3 2>/dev/null || true)"
+  sha_bin="$(trusted_system_binary sha256sum 2>/dev/null || true)"
+  [ -n "$sha_bin" ] || sha_bin="$(trusted_system_binary shasum 2>/dev/null || true)"
+  [ -n "$sha_bin" ] || {
+    printf 'SDD GUARD: helper SHA-256 confiavel e obrigatorio\n' >&2
+    return 1
+  }
 
   [ "$gate" != producao ] || gate=production
 
@@ -611,46 +690,39 @@ authority_check_external() {
     printf 'SDD GUARD: authority.check_sha256 ausente ou invalido\n' >&2
     return 1
   }
-  checker_dir="$(umask 077 && mktemp -d "/tmp/sdd-authority.XXXXXX")" || {
+  checker_dir="$(umask 077 && "$mktemp_bin" -d "/tmp/sdd-authority.XXXXXX")" || {
     printf 'SDD GUARD: nao foi possivel criar sandbox privada para authority checker\n' >&2
     return 1
   }
   checker_copy="$checker_dir/$(basename "$resolved")"
-  if ! command cp "$resolved" "$checker_copy" || [ ! -f "$checker_copy" ] || [ -L "$checker_copy" ]; then
-    rm -f "$checker_copy"
-    rmdir "$checker_dir" 2>/dev/null || true
+  if ! "$cp_bin" "$resolved" "$checker_copy" || [ ! -f "$checker_copy" ] || [ -L "$checker_copy" ]; then
+    "$rm_bin" -f "$checker_copy"
+    "$rmdir_bin" "$checker_dir" 2>/dev/null || true
     printf 'SDD GUARD: nao foi possivel selar authority checker\n' >&2
     return 1
   fi
-  chmod 0500 "$checker_copy" || {
-    rm -f "$checker_copy"
-    rmdir "$checker_dir" 2>/dev/null || true
+  "$chmod_bin" 0500 "$checker_copy" || {
+    "$rm_bin" -f "$checker_copy"
+    "$rmdir_bin" "$checker_dir" 2>/dev/null || true
     printf 'SDD GUARD: nao foi possivel restringir copia do authority checker\n' >&2
     return 1
   }
-  actual_sha="$(sha256_stream <"$checker_copy")" || {
-    rm -f "$checker_copy"
-    rmdir "$checker_dir" 2>/dev/null || true
-    printf 'SDD GUARD: sha256sum ou shasum e obrigatorio para validar authority checker\n' >&2
+  case "${sha_bin##*/}" in
+    sha256sum) actual_sha="$("$sha_bin" "$checker_copy")"; actual_sha="${actual_sha%% *}" ;;
+    shasum) actual_sha="$("$sha_bin" -a 256 "$checker_copy")"; actual_sha="${actual_sha%% *}" ;;
+  esac
+  if ! [[ "$actual_sha" =~ ^[0-9a-f]{64}$ ]]; then
+    "$rm_bin" -f "$checker_copy"
+    "$rmdir_bin" "$checker_dir" 2>/dev/null || true
+    printf 'SDD GUARD: falha no helper SHA-256 confiavel\n' >&2
     return 1
-  }
+  fi
   [ "$actual_sha" = "$expected_sha" ] || {
-    rm -f "$checker_copy"
-    rmdir "$checker_dir" 2>/dev/null || true
+    "$rm_bin" -f "$checker_copy"
+    "$rmdir_bin" "$checker_dir" 2>/dev/null || true
     printf 'SDD GUARD: authority checker diverge do SHA-256 confiavel\n' >&2
     return 1
   }
-  clean_path="/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin"
-  env_bin="$(PATH="$clean_path" command -v env 2>/dev/null || true)"
-  timeout_bin="$(PATH="$clean_path" command -v timeout 2>/dev/null || true)"
-  python_bin="$(PATH="$clean_path" command -v python3 2>/dev/null || true)"
-  [ -n "$env_bin" ] || {
-    rm -f "$checker_copy"
-    rmdir "$checker_dir" 2>/dev/null || true
-    printf 'SDD GUARD: env de sistema e obrigatorio para isolar authority checker\n' >&2
-    return 1
-  }
-
   if [ -n "$timeout_bin" ]; then
     "$env_bin" -i PATH="$clean_path" HOME="$checker_dir" TMPDIR="$checker_dir" \
       SDD_AUTH_FEATURE="$auth_feature" SDD_AUTH_GATE="$gate" \
@@ -680,13 +752,13 @@ PY
     printf 'SDD GUARD: timeout ou python3 e obrigatorio para limitar authority checker\n' >&2
     rc=125
   fi
-  rm -f "$checker_copy"
-  rmdir "$checker_dir" 2>/dev/null || true
+  "$rm_bin" -f "$checker_copy"
+  "$rmdir_bin" "$checker_dir" 2>/dev/null || true
   if [ "$rc" -ne 0 ]; then
     printf 'SDD GUARD: authority checker negou ou falhou (gate=%s, exit=%s)\n' "$gate" "$rc" >&2
     return 1
   fi
-}
+)
 
 require_authority() {
   authority_check_external "$1" "$2" "$3" \
@@ -790,6 +862,11 @@ collect_changes_since() {
   git -C "$root" -c core.quotepath=false diff --cached --name-only -z -- >>"$output" || return 1
   git -C "$root" -c core.quotepath=false diff --name-only -z -- >>"$output" || return 1
   git -C "$root" -c core.quotepath=false ls-files --others --exclude-standard -z >>"$output" || return 1
+  # Artefatos SDD ignorados continuam materiais para a prova. Sem esta lista,
+  # uma regra local/global de ignore poderia esconder drift da auditoria.
+  git -C "$root" -c core.quotepath=false ls-files --others --ignored \
+    --exclude-standard -z -- "sdd/incrementos/$feature" ".compozy/tasks/$feature" \
+    >>"$output" || return 1
 }
 
 is_delivery_evidence_path() {
@@ -845,7 +922,7 @@ normalize_audit_material() {
     ' >"$output"
     return
   fi
-  python3 - "$logical" "$source" "$output" <<'PY'
+  python3 -I - "$logical" "$source" "$output" <<'PY'
 import pathlib
 import re
 import sys
@@ -891,6 +968,9 @@ validate_audit_material_snapshot() {
   git -C "$root" ls-files -co --exclude-standard -z -- \
     "sdd/incrementos/$feature" ".compozy/tasks/$feature" >"$current_paths" \
     || { rm -f "$old_paths" "$current_paths"; fail "nao foi possivel ler artefatos atuais"; }
+  git -C "$root" ls-files --others --ignored --exclude-standard -z -- \
+    "sdd/incrementos/$feature" ".compozy/tasks/$feature" >>"$current_paths" \
+    || { rm -f "$old_paths" "$current_paths"; fail "nao foi possivel ler artefatos ignorados"; }
   while IFS= read -r -d '' path; do
     is_audit_material_path "$path" && material_paths["$path"]=1
   done <"$old_paths"
@@ -1107,7 +1187,7 @@ all_tasks_with_mode() {
 
 validate_task_dependencies() {
   local target="${1:-}" operation="${2:-graph}"
-  python3 - "$wf" "$target" "$operation" <<'PY' \
+  python3 -I - "$wf" "$target" "$operation" <<'PY' \
     || fail "grafo de dependencias das tasks invalido"
 import pathlib
 import re
@@ -1530,7 +1610,7 @@ require_deploy_evidence() {
 iso_to_epoch() {
   local timestamp="$1"
   if command -v python3 >/dev/null 2>&1; then
-    python3 - "$timestamp" <<'PY'
+    python3 -I - "$timestamp" <<'PY'
 from datetime import datetime, timezone
 import sys
 raw = sys.argv[1]
@@ -1884,6 +1964,26 @@ protected_record_indexes() {
   ' <<<"$policy_data" | sort -n
 }
 
+is_governance_trust_path_or_ancestor() {
+  local rel="$1"
+  case "$rel" in
+    .|.claude|.claude/settings.json|\
+    .github|.github/workflows|\
+    .github/workflows/sdd-guard.yml|.github/workflows/template-evals.yml|\
+    governanca|governanca/sdd-guard.sh|governanca/sdd-hook-claude.sh|\
+    governanca/sdd-fluxo.sh|governanca/sdd-metricas.sh|\
+    governanca/sdd-watch.sh.example|governanca/watch.yaml.example|\
+    governanca/policies.yaml|governanca/policies.yaml.example|\
+    evals|evals/*|scripts|scripts/validate-template.sh|install.sh|\
+    sdd|sdd/governanca|sdd/governanca/sdd-guard.sh|\
+    sdd/governanca/sdd-hook-claude.sh|sdd/governanca/sdd-fluxo.sh|\
+    sdd/governanca/sdd-metricas.sh|sdd/governanca/sdd-watch.sh|\
+    sdd/governanca/watch.yaml|sdd/governanca/policies.yaml|\
+    sdd/evals|sdd/evals/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 protect_path() {
   local rel index pattern normalized access step unknown auth_feature target
   rel="$(canonicalize_path "$1")"
@@ -1891,27 +1991,15 @@ protect_path() {
   case "$rel" in
     .git|.git/*) fail2 ".git e metadata protegida" ;;
   esac
-  case "$rel" in
-    .claude/settings.json|\
-    .github/workflows/sdd-guard.yml|.github/workflows/template-evals.yml|\
-    governanca/sdd-guard.sh|governanca/sdd-hook-claude.sh|\
-    governanca/sdd-fluxo.sh|governanca/sdd-metricas.sh|\
-    governanca/sdd-watch.sh.example|governanca/watch.yaml.example|\
-    governanca/policies.yaml|governanca/policies.yaml.example|\
-    evals|evals/*|scripts/validate-template.sh|install.sh|\
-    sdd/governanca/sdd-guard.sh|sdd/governanca/sdd-hook-claude.sh|\
-    sdd/governanca/sdd-fluxo.sh|sdd/governanca/sdd-metricas.sh|\
-    sdd/governanca/sdd-watch.sh|sdd/governanca/watch.yaml|\
-    sdd/governanca/policies.yaml|sdd/evals|sdd/evals/*)
-      auth_feature="${SDD_FEATURE:-}"
-      [[ "$auth_feature" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] \
-        || fail2 "$rel exige SDD_FEATURE e autoridade externa de governanca"
-      target="${SDD_AUTH_TARGET:-$rel}"
-      authority_check_external "$auth_feature" governance_change "$target" \
-        || fail2 "autoridade externa nao comprovada para alterar governanca: $rel"
-      return 0
-      ;;
-  esac
+  if is_governance_trust_path_or_ancestor "$rel"; then
+    auth_feature="${SDD_FEATURE:-}"
+    [[ "$auth_feature" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] \
+      || fail2 "$rel exige SDD_FEATURE e autoridade externa de governanca"
+    target="${SDD_AUTH_TARGET:-$rel}"
+    authority_check_external "$auth_feature" governance_change "$target" \
+      || fail2 "autoridade externa nao comprovada para alterar governanca: $rel"
+    return 0
+  fi
   case "$rel" in
     .|sdd|sdd/contratos|sdd/contratos/*) authorize_contract_path "$rel" ;;
   esac
@@ -1968,6 +2056,14 @@ protect_ci_path() {
   rel="$(canonicalize_path "$1")"
   [ -n "${SDD_TRUSTED_POLICIES:-}" ] \
     || fail2 "protect-ci exige SDD_TRUSTED_POLICIES extraida de uma base confiavel"
+  if is_governance_trust_path_or_ancestor "$rel"; then
+    auth_feature="${SDD_FEATURE:-repository}"
+    [[ "$auth_feature" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] \
+      || fail2 "SDD_FEATURE invalida para governanca no CI"
+    authority_check_external "$auth_feature" governance_change "$rel" \
+      || fail2 "autoridade externa nao comprovada para alterar trust root: $rel"
+    return 0
+  fi
   case "$rel" in
     sdd/contratos|sdd/contratos/*)
       auth_feature="${SDD_FEATURE:-repository}"
@@ -1975,13 +2071,6 @@ protect_ci_path() {
         || fail2 "SDD_FEATURE invalida para validar contrato no CI"
       authority_check_external "$auth_feature" contract_change "$rel" \
         || fail2 "autoridade externa nao comprovada para alterar $rel"
-      ;;
-    .claude/settings.json|.github/workflows/sdd-guard.yml|.github/workflows/template-evals.yml|install.sh|scripts/validate-template.sh|sdd/governanca/sdd-guard.sh|sdd/governanca/sdd-hook-claude.sh|sdd/governanca/sdd-fluxo.sh|sdd/governanca/sdd-metricas.sh|sdd/governanca/sdd-watch.sh|sdd/governanca/watch.yaml|sdd/governanca/policies.yaml|sdd/evals|sdd/evals/*|governanca/sdd-guard.sh|governanca/sdd-hook-claude.sh|governanca/sdd-fluxo.sh|governanca/sdd-metricas.sh|governanca/sdd-watch.sh.example|governanca/watch.yaml.example|governanca/policies.yaml.example|evals|evals/*)
-      auth_feature="${SDD_FEATURE:-repository}"
-      [[ "$auth_feature" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] \
-        || fail2 "SDD_FEATURE invalida para governanca no CI"
-      authority_check_external "$auth_feature" governance_change "$rel" \
-        || fail2 "autoridade externa nao comprovada para alterar trust root: $rel"
       ;;
     *) protect_path "$rel" ;;
   esac
