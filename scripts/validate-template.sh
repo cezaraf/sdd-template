@@ -102,8 +102,12 @@ if grep -q 'continue-on-error:[[:space:]]*true' "$guard_workflow"; then
 fi
 grep -q 'bubblewrap' "$template_workflow" \
   || fail "workflow de validação não instala a sandbox Tier 2"
+grep -q 'apparmor-profiles' "$template_workflow" \
+  || fail "workflow de validação não configura o profile AppArmor do bwrap"
 grep -q 'bwrap --version' "$template_workflow" \
   || fail "workflow de validação não comprova a sandbox Tier 2"
+grep -Fq 'bwrap --ro-bind / /' "$template_workflow" \
+  || fail "workflow de validação não exercita user namespace do bwrap"
 pinned_uses_re='^[[:space:]]*(-[[:space:]]*)?uses:[[:space:]]+(\./[^[:space:]#]+|[^[:space:]#]+@[0-9a-f]{40})[[:space:]]*(#.*)?$'
 while IFS= read -r uses_line; do
   [[ "$uses_line" =~ $pinned_uses_re ]] \
