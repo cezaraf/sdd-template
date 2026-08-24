@@ -1,181 +1,135 @@
-# 05 — Criar governança local de execução
+# 05 — Instalar governança executável
 
-Você é responsável por criar ou atualizar a governança local do projeto:
-`AGENTS.md`, regras, skills e documentação operacional necessárias para que
-agentes executem incrementos SDD e tasks Compozy com segurança e consistência.
-Este passo é setup de governança do projeto, não etapa do fluxo por incremento.
+Este passo cria ou atualiza a governança local do projeto. Não é executado a
+cada incremento, exceto quando uma entrega revelar lacuna.
 
-> Leia `_comum.md` (neste diretório) antes de executar este prompt. Ele define
-> idioma, terminologia, contexto canônico, severidade P0–P3, Definition of Done,
-> identificadores, ciclo de status, política de git e contratos vivos.
+> Leia `_comum.md`.
 
-## Modos de execução
+## Modos
 
-Escolha um:
+- `bootstrap`: deriva governança do repositório.
+- `atualizacao`: usa um incremento como evidência para corrigir rules, skills,
+  policies, hooks ou evals.
 
-- **Bootstrap do projeto** (sem `[feature]`): primeira execução, antes de
-  qualquer incremento existir. Cria a governança a partir da realidade do
-  repositório.
-- **Atualização por incremento** (com `[feature]`): um incremento revelou
-  lacuna de governança (regra ausente, comando desatualizado, camada nova).
-  Atualiza a governança usando os artefatos do incremento como evidência.
-
-## Entradas por modo
-
-Bootstrap do projeto:
+## Entradas
 
 ```text
-sdd/contratos/                       (se existir)
-README/scripts/manifests do projeto  (stack e comandos reais)
-estrutura de diretórios do repositório
+README, scripts, manifests, CI e estrutura do projeto
+sdd/contratos/
+sdd/governanca/policies.yaml                 (quando existir)
+sdd/evals/
+AGENTS.md / CLAUDE.md / regras existentes
 ```
 
-Atualização por incremento — leia também:
+No modo atualização, leia também o incremento completo.
 
-```text
-sdd/incrementos/[feature]/incremento.yaml
-sdd/incrementos/[feature]/brief.md
-sdd/incrementos/[feature]/execucao.md
-sdd/incrementos/[feature]/impacto-contratual/[dominio]/contrato.md
-.compozy/tasks/[feature]/_prd.md
-.compozy/tasks/[feature]/INDEX.md
-.compozy/tasks/[feature]/task_NN.md
-.compozy/tasks/[feature]/feature/NNN__task.feature
-```
-
-Condicional — quando existir (trilhas `medium` e `large`; ver `_comum.md`):
-
-```text
-.compozy/tasks/[feature]/_techspec.md
-```
-
-## Saídas esperadas
-
-Crie ou atualize, conforme o projeto:
+## Saídas possíveis
 
 ```text
 AGENTS.md
 CLAUDE.md
 .claude/rules/
 .claude/skills/
+.claude/settings.json                        (hooks PreToolUse do guard)
 .mcp.json
+sdd/governanca/policies.yaml
+sdd/governanca/sdd-guard.sh                  (gates, protect, scan-secrets)
+sdd/governanca/sdd-fluxo.sh                  (driver do loop)
+sdd/governanca/sdd-metricas.sh               (indicadores)
+sdd/governanca/sdd-watch.sh + watch.yaml     (detector operacional)
+sdd/evals/run-evals.sh + sdd/evals/cases/
+.github/workflows/sdd-guard.yml              (quando GitHub Actions existir)
+.github/workflows/sdd-watch.yml              (quando houver métrica monitorável)
 ```
+
+O instalador já entrega guard, hook do Claude Code, driver de fluxo, métricas,
+runner de evals e exemplos do detector. Este passo adapta o que é específico do
+projeto: comandos reais em `policies.yaml`, caminhos protegidos adicionais,
+métricas de `watch.yaml` e evals novas.
+
+## Princípio
+
+Use o mecanismo correto:
+
+- **documentação/rule/skill** para orientação contextual;
+- **policy/hook/CI** para bloqueio determinístico;
+- **eval** para regressão do harness;
+- **gate humano** para julgamento e autoridade.
+
+Não tente resolver segurança crítica apenas com prompt.
+
+## Policies mínimas
+
+- caminhos protegidos;
+- comandos reais de lint/build/test/E2E;
+- regras de transição;
+- matriz de gates por risco/autonomia;
+- política de segredos;
+- política de git/PR/merge/deploy;
+- requisito de rollback;
+- exceções registráveis.
+
+`authority.check_command` deve ser um executável absoluto fora do worktree,
+fixado pelo SHA-256 lowercase em `authority.check_sha256`. Ele recebe
+`SDD_AUTH_FEATURE`, `SDD_AUTH_GATE`, `SDD_AUTH_HEAD` e
+`SDD_AUTH_TARGET`, consulta a fonte protegida do projeto (por exemplo, review do
+PR, environment ou approval service) e retorna `0` somente para decisão válida
+e vinculada ao SHA. Texto em `incremento.yaml` não é prova de autoridade.
+
+Preencha `quality_commands` com comandos reais. Se todas as listas ficarem
+vazias, `pre-complete`, `pre-validate`, `pre-merge` e `pre-consolidate` exigirão
+waiver do checker externo. Isso é fail-closed intencional.
+
+## Verificação obrigatória do enforcement
+
+Antes de encerrar o passo, prove que o enforcement existe de fato:
+
+```bash
+sdd/governanca/sdd-guard.sh validate-policy
+sdd/evals/run-evals.sh --tier1                       # invariantes do harness
+sdd/governanca/sdd-guard.sh protect sdd/contratos/x  # deve bloquear (exit 2)
+sdd/governanca/sdd-guard.sh scan-secrets <arquivo>   # deve bloquear segredo
+```
+
+Valide também uma decisão negada pelo checker e confirme que termina bloqueada.
+No CI, mudanças em contrato usam `protect-ci` e exigem o gate externo
+`contract_change`; o token local de consolidação nunca é copiado para o runner.
+O workflow deve extrair a policy do commit base para `SDD_TRUSTED_POLICIES`.
+Não use a policy do próprio PR como raiz de confiança. O primeiro bootstrap é
+uma operação administrativa separada.
+
+Regra crítica sem teste que a exercite é dívida de governança, não controle.
+
+## Evals mínimas
+
+Crie casos que provem que o agente:
+
+1. não classifica segurança como risco baixo nem confunde risco com rigor;
+2. exige TechSpec/review quando risco ou alvo demandarem;
+3. não implementa sem auditoria `PRONTO`;
+4. mantém rastreabilidade completa;
+5. não altera contrato vivo antes do passo 13;
+6. detecta camada full-stack ausente;
+7. usa `NAO_VERIFICADO` quando QA não executa;
+8. bloqueia P0/P1;
+9. exige regressão em bugfix;
+10. respeita autoridade de git/deploy;
+11. promove incidentes recorrentes a eval.
 
 ## Regras críticas
 
-- Não altere comportamento de produto.
-- Não crie segredo em arquivo.
-- Não prometa CI se o projeto só tem gate local.
-- Não aponte agentes para caminhos legados quando o workflow canônico é
-  `.compozy/tasks/[feature]`.
-- Não permita atualização direta de `sdd/contratos/` durante implementação comum; a
-  consolidação do contrato vivo acontece no fechamento.
-
-## Conteúdo mínimo de AGENTS.md / CLAUDE.md
-
-Inclua:
-
-- descrição curta do projeto;
-- stack e comandos reais;
-- Definition of Done;
-- estrutura SDD canônica: `sdd/contratos`, `sdd/incrementos`, `sdd/historico`;
-- estrutura Compozy canônica;
-- regra de precedência entre contrato vivo, impacto contratual e task executável;
-- mapa de backend, frontend, contratos compartilhados e comandos de teste por
-  camada, quando o projeto for full-stack;
-- como validar e executar:
-
-```bash
-compozy tasks validate --name [feature]
-compozy sync --name [feature]
-compozy tasks run [feature] --ide codex --stream
-```
-
-- regras de idioma/documentação;
-- regras de segurança e segredos;
-- regra de leitura obrigatória de `_prd.md`, `_techspec.md`, `INDEX.md`,
-  `task_NN.md`, `.feature`, `sdd/incrementos/[feature]` e contratos vivos relacionados;
-- política de fechamento: só `10-consolidar-contrato-vivo.md` consolida impactos em
-  `sdd/contratos/`;
-- política de git (frase canônica de `_comum.md`): "Sem commit, push ou PR
-  sem autorização explícita do usuário."
-
-## Rules recomendadas
-
-Formato: um arquivo kebab-case por rule em `.claude/rules/` (ex.: `idioma.md`,
-`contratos-vivos.md`), com no máximo ~10 linhas, frase imperativa e exceção
-quando houver. O conteúdo das rules pode citar `_comum.md` como fonte: os
-projetos-alvo recebem `_comum.md` junto na instalação.
-
-Obrigatórias:
-
-- idioma;
-- leitura de contexto;
-- precedência de artefatos;
-- contratos vivos;
-- fechamento;
-- política de git (frase canônica de `_comum.md`);
-- Definition of Done.
-
-Condicionais — crie somente quando o gatilho existir no projeto:
-
-- dependências Compozy — quando tasks declararem dependências no frontmatter;
-- trilhas de rigor — quando o projeto usar mais de uma trilha (`small`,
-  `medium`, `large`);
-- limite de escopo — quando houver histórico de alteração fora da task ou
-  incrementos `large`;
-- TechSpec e decisões técnicas — quando a trilha exigir TechSpec (`medium`
-  e `large`);
-- cobertura backend/frontend e contratos entre camadas — quando o projeto
-  for full-stack;
-- persistência e versionamento — quando houver migrações ou dados
-  versionados;
-- RBAC/isolamento — quando houver múltiplos papéis ou multi-tenancy;
-- segredos/dados sensíveis — quando o projeto lidar com credenciais ou
-  dados pessoais;
-- sanitização/SSRF/XSS — quando houver entrada de usuário renderizada ou
-  chamadas a URLs externas;
-- integração com IA — quando o produto consumir LLMs ou serviços de IA;
-- estratégia de testes — quando os gates do projeto divergirem do padrão de
-  `_comum.md`;
-- BDD estrito — quando os cenários `SCN-*` forem o contrato de teste do
-  projeto;
-- review/QA — quando houver critérios de review/QA além dos prompts 07/08;
-- registro e correção de bugs — quando houver rastreador próprio ou
-  convenções extras de registro;
-- documentação — quando o projeto exigir documentação além dos artefatos
-  SDD;
-- observabilidade — quando logs, métricas ou tracing forem exigidos em
-  produção;
-- acessibilidade — quando houver UI voltada a usuário final.
-
-## Skills locais recomendadas
-
-Crie apenas quando o projeto precisar:
-
-- `gerar-teste-bdd-estrito`
-- `validar-definition-of-done`
-- `validar-impacto-contratual`
-- `consolidar-incremento-sdd`
-- `auditoria-de-acessibilidade`
-- skills de domínio específicas do projeto
-
-Cada skill deve ter `SKILL.md`, escopo claro, entradas, passos, saídas e
-critérios de conclusão.
-
-## MCP
-
-Configure MCPs somente quando necessários. Para documentação atual de libs,
-prefira Context7 se disponível. Nunca grave segredos em `.mcp.json`; use env vars.
+- Não escreva segredos.
+- Não prometa gate inexistente.
+- Não sobrescreva governança específica do projeto sem preservar decisões.
+- Faça `policies.yaml` refletir comandos reais.
+- Hooks devem falhar de forma legível e indicar como desbloquear.
+- Evals precisam de entrada, expectativa e evidência de aprovação.
 
 ## Checklist
 
-- [ ] AGENTS.md/CLAUDE.md apontam para `.compozy/tasks/[feature]`.
-- [ ] AGENTS.md/CLAUDE.md explicam `sdd/contratos`, `sdd/incrementos` e `sdd/historico`.
-- [ ] Rules impedem atualização direta de `sdd/contratos/` antes do fechamento.
-- [ ] Rules citam `task_NN.md` e frontmatter Compozy.
-- [ ] Governança orienta tasks backend/frontend e validação de contratos quando aplicável.
-- [ ] Skills têm instruções executáveis e curtas.
-- [ ] Nenhum segredo foi escrito.
-- [ ] No modo atualização por incremento: `compozy tasks validate --name [feature]`
-      permanece verde (não se aplica ao bootstrap).
+- Orientação e enforcement estão separados.
+- Caminhos protegidos realmente são verificados.
+- Autonomia não supera autoridade.
+- Produção exige gate específico.
+- Evals rodam em CI ou possuem comando documentado.
+- Alterações de governança têm evidência do problema que resolvem.

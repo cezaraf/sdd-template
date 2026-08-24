@@ -1,0 +1,28 @@
+# EXEMPLO — configuração do detector operacional (sdd-watch.sh).
+#
+# Copie para sdd/governanca/watch.yaml e substitua os `command` por comandos
+# reais do projeto que produzirem um NÚMERO na saída (métrica crua).
+# Cada amostra é armazenada em .sdd-watch/<name>.samples (adicione
+# `.sdd-watch/` ao .gitignore). Bandas padrão: 1σ observar, 2σ diagnosticar
+# (agente somente-leitura), 3σ ação restrita + incidente.
+version: 1
+
+checks:
+  - name: erros-5xx-pos-deploy
+    command: "curl -sf http://localhost:9090/api/v1/query --data-urlencode 'q=sum(rate(http_5xx[5m]))' | jq '.value'"
+    window: 20
+    min_amostras: 10
+    sigma_diagnostico: 2
+    sigma_acao: 3
+    runbook: rollback-deploy
+
+  - name: falhas-de-teste-no-ci
+    command: "gh run list --limit 1 --json conclusion -q '.[0].conclusion == \"failure\"' | grep -c true || echo 0"
+    window: 30
+    sigma_diagnostico: 2
+    sigma_acao: 3
+    runbook: quarentena-flaky
+
+  # Exemplo de métrica de processo (playbook Stage 6):
+  # - name: ciclo-de-pr-horas
+  #   command: "gh pr list --state merged --limit 10 --json createdAt,mergedAt ..."

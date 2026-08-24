@@ -1,0 +1,303 @@
+name: SDD guard
+
+on:
+  # Executa a definicao do workflow presente na base, nao a versao proposta
+  # pelo PR. O checkout abaixo ainda aponta para o head candidato.
+  pull_request_target:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Resolver base e controles obrigatorios
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BASE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+
+          base="$PR_BASE"
+          if [ -z "$base" ]; then base="$PUSH_BASE"; fi
+          [ -n "$base" ] && [[ ! "$base" =~ ^0+$ ]] \
+            && git cat-file -e "$base^{commit}" 2>/dev/null \
+            || { printf 'base confiável ausente; bootstrap exige aprovação administrativa\n' >&2; exit 1; }
+
+          changed_all="$RUNNER_TEMP/sdd-changed-all.zlist"
+          changed_content="$RUNNER_TEMP/sdd-changed-content.zlist"
+          changed_deleted="$RUNNER_TEMP/sdd-changed-deleted.zlist"
+          : >"$changed_content"
+          : >"$changed_deleted"
+          if [ "$EVENT_NAME" = pull_request_target ]; then
+            git merge-base "$base" HEAD >/dev/null 2>&1 \
+              || { printf 'PR sem merge-base verificável\n' >&2; exit 1; }
+            git diff --no-renames --name-only -z "$base"...HEAD -- >"$changed_all" \
+              || { printf 'falha ao materializar diff do PR\n' >&2; exit 1; }
+          elif [ "$EVENT_NAME" = push ]; then
+            git diff --no-renames --name-only -z "$base" HEAD -- >"$changed_all" \
+              || { printf 'falha ao materializar diff do push\n' >&2; exit 1; }
+          else
+            printf 'evento não suportado: %s\n' "$EVENT_NAME" >&2
+            exit 1
+          fi
+          while IFS= read -r -d '' path; do
+            if [ -f "$path" ] && [ ! -L "$path" ]; then
+              printf '%s\0' "$path" >>"$changed_content"
+            elif [ ! -e "$path" ] && [ ! -L "$path" ]; then
+              printf '%s\0' "$path" >>"$changed_deleted"
+            fi
+          done <"$changed_all"
+
+          trusted_root="$RUNNER_TEMP/sdd-trusted-controls"
+          mkdir -p "$trusted_root/governanca" "$trusted_root/evals/cases" "$trusted_root/.github/workflows"
+
+          extract_base() {
+            destination="$1"
+            shift
+            for candidate in "$@"; do
+              if git cat-file -e "$base:$candidate" 2>/dev/null; then
+                git show "$base:$candidate" >"$destination"
+                [ -s "$destination" ] || return 1
+                return 0
+              fi
+            done
+            return 1
+          }
+
+          trusted_policies="$trusted_root/governanca/policies.yaml"
+          trusted_guard="$trusted_root/governanca/sdd-guard.sh"
+          trusted_hook="$trusted_root/governanca/sdd-hook-claude.sh"
+          trusted_flow="$trusted_root/governanca/sdd-fluxo.sh"
+          trusted_metrics="$trusted_root/governanca/sdd-metricas.sh"
+          trusted_evals="$trusted_root/evals/run-evals.sh"
+          trusted_catalog="$trusted_root/evals/cases/core-contracts.yaml"
+          trusted_workflow="$trusted_root/.github/workflows/sdd-guard.yml"
+
+          extract_base "$trusted_policies" sdd/governanca/policies.yaml governanca/policies.yaml governanca/policies.yaml.example \
+            || { printf 'policy confiavel ausente na base; bootstrap exige aprovacao administrativa\n' >&2; exit 1; }
+          extract_base "$trusted_guard" sdd/governanca/sdd-guard.sh governanca/sdd-guard.sh \
+            || { printf 'guard confiavel ausente na base; bootstrap exige aprovacao administrativa\n' >&2; exit 1; }
+          extract_base "$trusted_hook" sdd/governanca/sdd-hook-claude.sh governanca/sdd-hook-claude.sh \
+            || { printf 'hook confiavel ausente na base\n' >&2; exit 1; }
+          extract_base "$trusted_flow" sdd/governanca/sdd-fluxo.sh governanca/sdd-fluxo.sh \
+            || { printf 'fluxo confiavel ausente na base\n' >&2; exit 1; }
+          extract_base "$trusted_metrics" sdd/governanca/sdd-metricas.sh governanca/sdd-metricas.sh \
+            || { printf 'metricas confiaveis ausentes na base\n' >&2; exit 1; }
+          extract_base "$trusted_evals" sdd/evals/run-evals.sh evals/run-evals.sh \
+            || { printf 'evals confiaveis ausentes na base\n' >&2; exit 1; }
+          extract_base "$trusted_catalog" sdd/evals/cases/core-contracts.yaml evals/cases/core-contracts.yaml \
+            || { printf 'catalogo confiavel ausente na base\n' >&2; exit 1; }
+          extract_base "$trusted_workflow" .github/workflows/sdd-guard.yml \
+            || { printf 'workflow confiavel ausente na base\n' >&2; exit 1; }
+          chmod 0555 "$trusted_guard" "$trusted_hook" "$trusted_flow" "$trusted_metrics" "$trusted_evals"
+          chmod 0444 "$trusted_policies" "$trusted_catalog" "$trusted_workflow"
+
+          candidate_guard=""
+          for candidate in sdd/governanca/sdd-guard.sh governanca/sdd-guard.sh; do
+            if [ -x "$candidate" ] && [ -s "$candidate" ]; then candidate_guard="$candidate"; break; fi
+          done
+          [ -n "$candidate_guard" ] || { printf 'sdd-guard.sh candidato ausente ou nao executavel\n' >&2; exit 1; }
+
+          candidate_hook=""
+          for candidate in sdd/governanca/sdd-hook-claude.sh governanca/sdd-hook-claude.sh; do
+            if [ -x "$candidate" ] && [ -s "$candidate" ]; then candidate_hook="$candidate"; break; fi
+          done
+          [ -n "$candidate_hook" ] || { printf 'sdd-hook-claude.sh candidato ausente ou nao executavel\n' >&2; exit 1; }
+
+          candidate_evals=""
+          for candidate in sdd/evals/run-evals.sh evals/run-evals.sh; do
+            if [ -x "$candidate" ] && [ -s "$candidate" ]; then candidate_evals="$candidate"; break; fi
+          done
+          [ -n "$candidate_evals" ] || { printf 'run-evals.sh candidato ausente ou nao executavel\n' >&2; exit 1; }
+
+          candidate_flow=""
+          candidate_metrics=""
+          for candidate in sdd/governanca/sdd-fluxo.sh governanca/sdd-fluxo.sh; do
+            if [ -x "$candidate" ] && [ -s "$candidate" ]; then candidate_flow="$candidate"; break; fi
+          done
+          for candidate in sdd/governanca/sdd-metricas.sh governanca/sdd-metricas.sh; do
+            if [ -x "$candidate" ] && [ -s "$candidate" ]; then candidate_metrics="$candidate"; break; fi
+          done
+          [ -n "$candidate_flow" ] && [ -n "$candidate_metrics" ] \
+            || { printf 'fluxo/métricas candidatos ausentes ou não executáveis\n' >&2; exit 1; }
+
+          candidate_policies=""
+          for candidate in sdd/governanca/policies.yaml governanca/policies.yaml governanca/policies.yaml.example; do
+            if [ -f "$candidate" ] && [ ! -L "$candidate" ] && [ -s "$candidate" ]; then candidate_policies="$candidate"; break; fi
+          done
+          [ -n "$candidate_policies" ] || { printf 'policies candidata ausente\n' >&2; exit 1; }
+          candidate_policy_copy="$RUNNER_TEMP/sdd-candidate-policies.yaml"
+          cp -- "$candidate_policies" "$candidate_policy_copy"
+          chmod 0444 "$candidate_policy_copy"
+          [ -s .github/workflows/sdd-guard.yml ] \
+            || { printf 'workflow sdd-guard removido\n' >&2; exit 1; }
+
+          bash -n "$trusted_guard"
+          bash -n "$trusted_hook"
+          bash -n "$trusted_evals"
+          bash -n "$candidate_guard"
+          bash -n "$candidate_hook"
+          bash -n "$candidate_evals"
+          bash -n "$candidate_flow"
+          bash -n "$candidate_metrics"
+          SDD_POLICIES_FILE="$candidate_policy_copy" \
+            SDD_TRUSTED_POLICIES="$trusted_policies" \
+            "$trusted_guard" validate-policy
+          for marker in pre-specify pre-validate pre-merge-ci authority-check pre-consolidate protect-ci scan-secrets; do
+            grep -Fq "$marker" "$candidate_guard" \
+              || { printf 'controle obrigatorio ausente do guard: %s\n' "$marker" >&2; exit 1; }
+          done
+          for marker in scan-content authority-check; do
+            grep -Fq "$marker" "$candidate_hook" \
+              || { printf 'controle obrigatorio ausente do hook: %s\n' "$marker" >&2; exit 1; }
+          done
+          for marker in authority check_command check_sha256 protected_paths quality_commands; do
+            grep -Fq "$marker" "$candidate_policies" \
+              || { printf 'controle obrigatorio ausente de policies: %s\n' "$marker" >&2; exit 1; }
+          done
+          grep -Fq 'run-evals.sh' .github/workflows/sdd-guard.yml \
+            || { printf 'execucao das evals removida do workflow\n' >&2; exit 1; }
+          grep -Fq 'pre-merge-ci' .github/workflows/sdd-guard.yml \
+            || { printf 'pre-merge-ci removido do workflow\n' >&2; exit 1; }
+
+          if [ -f .claude/settings.json ]; then
+            [ ! -L .claude/settings.json ] \
+              || { printf '.claude/settings.json não pode ser symlink\n' >&2; exit 1; }
+            python3 - .claude/settings.json <<'PY'
+          import json
+          import sys
+
+          def unique_object(pairs):
+              result = {}
+              for key, value in pairs:
+                  if key in result:
+                      raise ValueError(f"duplicate key: {key}")
+                  result[key] = value
+              return result
+
+          with open(sys.argv[1], encoding="utf-8") as stream:
+              data = json.load(stream, object_pairs_hook=unique_object)
+          pre = data.get("hooks", {}).get("PreToolUse", [])
+          for matcher in ("Edit|Write|MultiEdit|NotebookEdit", "Bash"):
+              matches = [
+                  hook for item in pre if item.get("matcher") == matcher
+                  for hook in item.get("hooks", [])
+                  if hook.get("type") == "command"
+                  and hook.get("command") == "sdd/governanca/sdd-hook-claude.sh"
+              ]
+              if len(matches) != 1:
+                  raise SystemExit(f"hook SDD ausente ou duplicado para {matcher}")
+          PY
+          fi
+
+          removed=0
+          while IFS= read -r -d '' path; do
+            case "$path" in
+              .claude/settings.json|.github/workflows/sdd-guard.yml|governanca/sdd-guard.sh|governanca/sdd-hook-claude.sh|governanca/sdd-fluxo.sh|governanca/sdd-metricas.sh|governanca/policies.yaml.example|evals/run-evals.sh|evals/cases/core-contracts.yaml|scripts/validate-template.sh|install.sh|sdd/governanca/sdd-guard.sh|sdd/governanca/sdd-hook-claude.sh|sdd/governanca/sdd-fluxo.sh|sdd/governanca/sdd-metricas.sh|sdd/governanca/policies.yaml|sdd/evals/run-evals.sh|sdd/evals/cases/core-contracts.yaml)
+                printf 'remocao/rename de controle SDD bloqueada: %s\n' "$path" >&2
+                removed=1
+                ;;
+            esac
+          done <"$changed_deleted"
+          [ "$removed" -eq 0 ] || exit 1
+
+          {
+            printf 'SDD_BASE=%s\n' "$base"
+            printf 'SDD_GUARD=%s\n' "$trusted_guard"
+            printf 'SDD_HOOK=%s\n' "$trusted_hook"
+            printf 'SDD_EVALS=%s\n' "$trusted_evals"
+            printf 'SDD_POLICIES_FILE=%s\n' "$trusted_policies"
+            printf 'SDD_TRUSTED_POLICIES=%s\n' "$trusted_policies"
+            printf 'SDD_CHANGED_ALL=%s\n' "$changed_all"
+            printf 'SDD_CHANGED_CONTENT=%s\n' "$changed_content"
+            printf 'SDD_CHANGED_DELETED=%s\n' "$changed_deleted"
+          } >>"$GITHUB_ENV"
+
+      - name: Evals confiaveis da base (tier 1)
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -x "$SDD_EVALS" ] || { printf 'evals confiaveis ausentes\n' >&2; exit 1; }
+          env -u SDD_POLICIES_FILE -u SDD_TRUSTED_POLICIES "$SDD_EVALS" --tier1
+
+      - name: Segredos nos arquivos alterados
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -x "$SDD_GUARD" ] || { printf 'guard ausente\n' >&2; exit 1; }
+          files=()
+          # Deletados nao possuem conteudo para varrer. Exclusoes de conteudo
+          # sao somente secrets.allowed_files, aplicadas pelo proprio guard.
+          while IFS= read -r -d '' path; do files+=("$path"); done <"$SDD_CHANGED_CONTENT"
+          if [ "${#files[@]}" -gt 0 ]; then
+            "$SDD_GUARD" scan-secrets "${files[@]}"
+          else
+            printf 'nenhum arquivo com conteudo alterado\n'
+          fi
+
+      - name: Caminhos protegidos nos arquivos alterados
+        shell: bash
+        env:
+          SDD_FEATURE: repository
+          SDD_AUTH_TARGET: ${{ github.base_ref || github.ref_name }}
+        run: |
+          set -euo pipefail
+          [ -x "$SDD_GUARD" ] || { printf 'guard ausente\n' >&2; exit 1; }
+          while IFS= read -r -d '' path; do
+            # Tokens efêmeros de pre-consolidate vivem em .git local e não são
+            # transportáveis. No CI, mudanças de contrato exigem a autoridade
+            # externa `contract_change`; demais paths usam a policy normal.
+            "$SDD_GUARD" protect-ci "$path"
+          done <"$SDD_CHANGED_ALL"
+
+      - name: Pre-merge dos incrementos afetados
+        if: github.event_name == 'pull_request_target'
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -x "$SDD_GUARD" ] || { printf 'guard ausente\n' >&2; exit 1; }
+          declare -A features=()
+          product_change=0
+
+          while IFS= read -r -d '' path; do
+            feature=""
+            case "$path" in
+              sdd/incrementos/*/*)
+                rest="${path#sdd/incrementos/}"
+                feature="${rest%%/*}"
+                [ -d "sdd/incrementos/$feature" ] || feature=""
+                ;;
+              .compozy/tasks/*/*)
+                rest="${path#.compozy/tasks/}"
+                feature="${rest%%/*}"
+                [ -d ".compozy/tasks/$feature" ] || feature=""
+                ;;
+              # Exclusoes que nao representam entrega de produto. Elas ainda
+              # passam por secrets/protect e pelos checks de controles acima.
+              .claude/settings.json|.github/workflows/sdd-guard.yml|.github/workflows/template-evals.yml|.github/workflows/sdd-watch.yml.example|governanca/sdd-guard.sh|governanca/sdd-hook-claude.sh|governanca/sdd-fluxo.sh|governanca/sdd-metricas.sh|governanca/sdd-watch.sh.example|governanca/watch.yaml.example|governanca/policies.yaml.example|evals/run-evals.sh|evals/cases/core-contracts.yaml|evals/README.md|sdd/governanca/*|sdd/evals/*|scripts/validate-template.sh|install.sh|_comum.md|README.md|LICENSE|LICENSE.*|0[0-9]-*.md|1[0-4]-*.md|docs/ai-native-sdlc.md|docs/guia-para-leigos.md)
+                ;;
+              *) product_change=1 ;;
+            esac
+            if [ -n "$feature" ]; then features["$feature"]=1; fi
+          done <"$SDD_CHANGED_ALL"
+
+          if [ "$product_change" -eq 1 ] && [ "${#features[@]}" -eq 0 ]; then
+            printf 'mudanca de produto sem incremento SDD afetado\n' >&2
+            exit 1
+          fi
+          for feature in "${!features[@]}"; do
+            "$SDD_GUARD" pre-merge-ci "$feature"
+          done

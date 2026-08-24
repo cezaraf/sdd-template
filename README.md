@@ -1,160 +1,222 @@
-# SDD Template para Compozy + Contratos Vivos
+# SDD Template — contratos vivos e SDLC AI-native
 
-Este repositório é um template para conduzir desenvolvimento orientado por
-especificação com agentes de IA, BDD e Compozy.
+Template para desenvolvimento orientado por especificação com agentes de IA,
+BDD, Compozy, gates verificáveis e contratos vivos.
 
-Em termos simples: antes de pedir para um agente sair programando, este fluxo
-obriga o projeto a explicar o que será entregue, por que será entregue, como
-será implementado, como será testado, como será revisado e como o conhecimento
-final voltará para a documentação viva do sistema.
-
-## A Ideia Em Uma Frase
-
-Cada entrega nasce como um `incremento`, vira tasks executáveis pelo Compozy,
-passa por auditoria, implementação, review, QA e bugfix, e no final atualiza o
-`contrato vivo` do sistema.
-
-## Para Quem Serve
-
-Use este template quando você quer que agentes trabalhem com previsibilidade em
-um projeto real: regras de negócio que não podem ser interpretadas livremente,
-contratos entre backend e frontend, rastreabilidade de requisito até teste,
-auditoria antes de implementar, QA depois de implementar e documentação viva
-que não fica desatualizada.
-
-Para uma alteração muito pequena, o fluxo pode ser enxuto (trilha `small`).
-Para uma feature grande, o fluxo completo evita que a IA implemente algo certo
-do jeito errado. As trilhas de rigor (`small`, `medium`, `large`) são
-escolhidas no passo `00`.
-
-Nunca trabalhou com SDD ou contratos vivos? Comece pelo
-[guia para leigos](docs/guia-para-leigos.md) — analogias, uma entrega narrada
-do começo ao fim e perguntas de iniciante.
-
-## Conceitos
-
-### Contrato Vivo
-
-O contrato vivo é a descrição versionada do comportamento atual do sistema,
-organizada por domínio em `sdd/contratos/[dominio]/contrato.md`. Pense nele
-como o manual oficial do que o sistema promete fazer hoje:
+A proposta é simples:
 
 ```text
-O sistema faz isto hoje.
-Quando acontece X, deve responder Y.
-Quando o usuário tenta Z, deve ver W.
+intenção
+→ especificação
+→ plano aprovado
+→ implementação
+→ review
+→ QA
+→ PR/merge
+→ deploy/verificação
+→ contrato vivo
+→ aprendizados e evals
 ```
 
-Ele não é plano futuro: representa o que já foi consolidado. Ele só é alterado
-no fechamento do incremento (passo `10`). Durante a entrega, mudanças de
-comportamento são planejadas como `impacto contratual`
-(`sdd/incrementos/[feature]/impacto-contratual/`), classificadas como `NOVO`,
-`ALTERADO` ou `REMOVIDO`.
+O fluxo reduz duas falhas comuns de desenvolvimento com agentes:
+
+1. implementar rapidamente a coisa errada;
+2. criar muita documentação que não controla nem prova a execução.
+
+Cada artefato existe para reduzir ambiguidade, limitar autoridade, disparar uma
+etapa ou guardar evidência.
+
+## O que mudou nesta versão
+
+A evolução AI-native adiciona:
+
+- classificação independente de **rigor**, **risco**, **autonomia** e **alvo do
+  contrato**;
+- `execucao.md` como plano persistido, com base SHA, arquivos esperados, ordem,
+  riscos, alternativas e provas;
+- separação entre **parecer do agente** e **gate humano**;
+- estado macro (`status`) e fase operacional (`fase`);
+- PR, merge, deploy e verificação dentro do ciclo;
+- policies/hooks para enforcement determinístico;
+- evals do próprio harness;
+- promoção de incidentes e retrabalho para regras, skills, runbooks ou evals;
+- contrato vivo consolidado apenas no alvo declarado: local, branch ou produção.
+
+## Núcleo conceitual
 
 ### Incremento
 
-Um incremento é uma entrega em andamento. Ele fica em
-`sdd/incrementos/[feature]/` e guarda o contexto completo: intenção, execução,
-impactos no contrato vivo e relatório de fechamento. O `incremento.yaml` é a
-ficha da entrega e carrega o `status` do ciclo de vida (`proposto` →
-`especificado` → `em_execucao` → `consolidado`, com `bloqueado` possível em
-qualquer etapa — ver `_comum.md`).
-
-### PRD
-
-PRD significa Documento de Requisitos de Produto. Ele fica em
-`.compozy/tasks/[feature]/_prd.md` e explica a entrega do ponto de vista de
-produto: problema, usuário, valor, regras de negócio, requisitos e fora de
-escopo. Obrigatoriedade de PRD/TechSpec por trilha: ver `_comum.md`.
-
-### Incremento Vs PRD
-
-Incremento e PRD não são a mesma coisa. O jeito mais simples de entender:
+A unidade completa da entrega:
 
 ```text
-Incremento = a pasta/entrega inteira em andamento
-PRD        = um documento de produto dentro dessa entrega
+brief
++ PRD
++ TechSpec
++ plano/tasks
++ impactos contratuais
++ auditoria
++ implementação
++ review/QA
++ PR/merge/deploy
++ fechamento
++ aprendizados
 ```
 
-Um incremento organiza tudo que pertence a uma entrega: brief, PRD, TechSpec,
-impacto contratual, tasks, cenários, auditoria, review, QA, bugs e fechamento.
-O PRD é apenas um desses artefatos. Ele descreve o que o produto precisa
-entregar e por quê. Ele não executa task, não guarda status operacional, não
-substitui TechSpec, não registra QA e não atualiza contrato vivo.
+### Contrato vivo
 
-| Pergunta | Incremento | PRD |
+`sdd/contratos/[dominio]/contrato.md` descreve o comportamento consolidado.
+
+O contrato não é plano futuro nem documentação de implementação. Durante a
+entrega, a mudança fica em:
+
+```text
+sdd/incrementos/[feature]/impacto-contratual/[dominio]/contrato.md
+```
+
+Somente o passo `13` aplica `NOVO`, `ALTERADO` ou `REMOVIDO` ao contrato vivo.
+
+### Plano de execução
+
+`sdd/incrementos/[feature]/execucao.md` é o equivalente ao plano aceito da
+entrega. Ele registra:
+
+- base ref/SHA;
+- ordem das tasks;
+- arquivos e superfícies esperadas;
+- contratos/dados;
+- riscos e sinais de parada;
+- alternativas descartadas;
+- provas de conclusão;
+- parecer do agente e gate humano;
+- revisões do plano.
+
+Um desvio material exige atualizar o plano e reauditar antes de continuar.
+
+## Dimensões de governança
+
+| Dimensão | Valores | Responde |
 | --- | --- | --- |
-| O que é? | A unidade completa de entrega. | Um documento de requisitos de produto. |
-| Onde fica? | `sdd/incrementos/[feature]/` | `.compozy/tasks/[feature]/_prd.md` |
-| Nasce quando? | No passo `00`. | No passo `01`. |
-| Serve para quê? | Agrupar, rastrear, executar e fechar a entrega. | Explicar objetivo, usuário, valor, regras e escopo. |
-| Contém tarefas? | Sim, aponta para execução e tasks. | Não. |
-| Contém decisão técnica? | Pode apontar para TechSpec e ADRs. | Não deve conter decisão técnica. |
-| Contém QA/review/bugs? | Sim, como parte do ciclo da entrega. | Não. |
-| Atualiza contrato vivo? | Sim, no fechamento. | Não diretamente. |
+| Rigor | `small`, `medium`, `large` | Quanto especificar |
+| Risco | `baixo`, `medio`, `alto`, `regulado` | Quanto pode dar errado |
+| Autonomia | `assistido`, `autonomo_ate_pr`, `autonomo_ate_staging`, `producao_com_gate` | Até onde o agente pode ir |
+| Alvo | `local`, `branch`, `producao` | Quando o contrato vivo pode ser consolidado |
 
-Exemplo de artefatos relacionados ao mesmo incremento:
+Uma mudança pequena em autorização pode ser:
+
+```yaml
+rigor: small
+risco: alto
+autonomia: assistido
+alvo_contrato: branch
+```
+
+Uma feature interna grande e reversível pode ser:
+
+```yaml
+rigor: large
+risco: baixo
+autonomia: autonomo_ate_pr
+alvo_contrato: branch
+```
+
+## Fluxo
+
+```mermaid
+flowchart TD
+    A[00 Brief + classificação] --> B[01 PRD]
+    B --> C{TechSpec obrigatória pela rota?}
+    C -->|não| D[03 Plano + tasks + BDD]
+    C -->|sim| E[02 TechSpec]
+    E --> D
+    D --> F[04 Auditoria independente]
+    F -->|ajustes/bloqueado| D
+    F -->|PRONTO + gates| G[06 Implementar tasks]
+    G --> H{Review obrigatório?}
+    H -->|sim| R[07 Review]
+    H -->|não| I[08 QA]
+    R -->|P0/P1| J[09 Bugfix]
+    R --> I
+    I -->|falha| J
+    J --> H
+    J --> I
+    I -->|validado| K{Alvo}
+    K -->|local| N[13 Consolidar]
+    K -->|branch/producao| L[10 Preparar PR]
+    L --> M[11 Validar PR + merge]
+    M -->|branch| N
+    M -->|producao| O[12 Deploy + verificar]
+    O --> N
+    N --> P[14 Promover aprendizados]
+```
+
+O passo `05` é bootstrap/atualização da governança e não roda obrigatoriamente
+em cada incremento.
+
+## Passos
+
+| Passo | Objetivo |
+| --- | --- |
+| `00` | Abrir incremento e classificar rigor, risco, autonomia e alvo |
+| `01` | Criar PRD observável |
+| `02` | Criar TechSpec e ADRs |
+| `03` | Criar plano, tasks, BDD e impactos contratuais |
+| `04` | Auditar especificação e plano em contexto isolado |
+| `05` | Instalar rules, skills, policies, hooks e evals |
+| `06` | Executar task dentro do plano aprovado |
+| `07` | Revisar implementação em contexto isolado |
+| `08` | Executar QA como consumidor |
+| `09` | Corrigir causa raiz e criar regressão |
+| `10` | Preparar pacote, commits e PR conforme autoridade |
+| `11` | Validar checks/reviews e gate de merge |
+| `12` | Fazer deploy, health checks e rollback se necessário |
+| `13` | Consolidar contrato vivo e arquivar incremento |
+| `14` | Promover aprendizados para harness e operação |
+
+## Estados
 
 ```text
-Incremento: filtrar-tarefas-por-status
+status:
+proposto → especificado → em_execucao → validado → consolidado
+                         ↘ bloqueado ↗
 
-sdd/incrementos/filtrar-tarefas-por-status/brief.md
-sdd/incrementos/filtrar-tarefas-por-status/execucao.md
-sdd/incrementos/filtrar-tarefas-por-status/impacto-contratual/tarefas/contrato.md
-.compozy/tasks/filtrar-tarefas-por-status/_prd.md
-.compozy/tasks/filtrar-tarefas-por-status/_techspec.md
-.compozy/tasks/filtrar-tarefas-por-status/task_01.md
-.compozy/tasks/filtrar-tarefas-por-status/qa/task_01-qa-report.md
+fase:
+triagem → especificacao → planejamento → auditoria → implementacao
+→ review → qa → validacao → pr → merge → deploy → verificacao → fechamento → aprendizado
 ```
 
-Nesse exemplo, o incremento é `filtrar-tarefas-por-status`. O PRD é somente o
-arquivo `_prd.md` dentro do conjunto de artefatos dessa entrega.
+`validado` ainda não significa merged ou deployed.
 
-### BDD e Gherkin
-
-BDD descreve comportamento esperado em cenários claros, com resultado
-observável, para que produto, engenharia e QA concordem sobre o que a entrega
-faz. Neste template, os cenários ficam em
-`.compozy/tasks/[feature]/feature/NNN__task.feature` e cada cenário recebe um
-ID `SCN-NNN` rastreável até teste (esquema de identificadores em `_comum.md`).
-
-```gherkin
-# language: pt
-
-Funcionalidade: Filtro de tarefas por status
-
-  Cenário: Exibir apenas tarefas abertas
-    Dado que existem tarefas abertas e concluídas
-    Quando eu filtro por "abertas"
-    Então vejo apenas tarefas abertas
-```
-
-## Estrutura De Pastas
-
-A regra geral é simples:
-
-```text
-sdd/contratos/    = o que o sistema faz hoje
-sdd/incrementos/  = o que estamos entregando agora
-.compozy/tasks/   = o que o agente executa
-sdd/historico/    = o que já foi entregue e consolidado
-```
-
-Depois de usar o fluxo em um projeto, a estrutura esperada fica assim:
+## Estrutura no projeto alvo
 
 ```text
 sdd/
   contratos/
-    [dominio]/contrato.md
   incrementos/
-    [feature]/
-      incremento.yaml
-      brief.md
-      execucao.md
-      impacto-contratual/[dominio]/contrato.md
-      relatorio-fechamento.md
   historico/
-    YYYY-MM-DD-[feature]/
+  aprendizados/
+  metricas.csv                  # série de indicadores por incremento
+  governanca/
+    policies.yaml               # caminhos protegidos, segredos, autoridade
+    sdd-guard.sh                # gates + protect + scan-secrets
+    sdd-fluxo.sh                # driver do loop (próximo passo)
+    sdd-metricas.sh             # indicadores leading/lagging
+    sdd-hook-claude.sh          # hook PreToolUse
+    sdd-watch.sh.example        # detector operacional (copiar e ajustar)
+    watch.yaml.example
+  evals/
+    README.md
+    run-evals.sh                # tier 1 determinístico + tier 2 agêntico
+    cases/core-contracts.yaml
+  prompts/
+    _comum.md
+    00-*.md ... 14-*.md
+
+.claude/
+  settings.json                 # hooks do guard (gerado pelo instalador)
+
+.github/workflows/
+  sdd-guard.yml                 # evals + segredos + caminhos protegidos no PR
+  sdd-watch.yml                 # opcional: loop operacional agendado
 
 .compozy/
   config.toml
@@ -164,203 +226,256 @@ sdd/
       _techspec.md
       INDEX.md
       task_NN.md
-      feature/NNN__task.feature
-      adrs/  reviews-001/  qa/  memory/
+      feature/
+      adrs/
+      reviews-001/
+      qa/
+      pr/
+      ops/
 ```
-
-## Fluxo
-
-```mermaid
-flowchart TD
-    A[Ideia ou pedido] --> B[00 Iniciar incremento]
-    B --> C{Trilha de rigor}
-    C -->|small| D[01 PRD enxuto]
-    C -->|medium / large| E[01 PRD]
-    E --> F["02 TechSpec (medium/large)"]
-    D --> G[03 Tasks + BDD + impacto contratual]
-    F --> G
-    G --> H[04 Auditoria da especificação]
-    H -->|PRECISA_AJUSTES ou BLOQUEADO| I[Corrigir artefatos]
-    I --> H
-    H -->|"PRONTO (gate obrigatório)"| K[06 Executar tasks]
-    J["05 Governança local (setup por projeto, uma vez)"] -.-> K
-    K --> L[07 Revisar implementação]
-    L -->|"REPROVADO / issues P0-P1"| O[09 Corrigir bugs]
-    L -->|APROVADO| N[08 QA]
-    N -->|Bug encontrado| O
-    O -->|re-review| L
-    O -->|re-QA| N
-    N -->|APROVADO| P[10 Consolidar contrato vivo]
-    P --> Q[sdd/contratos atualizado + incremento arquivado em sdd/historico]
-```
-
-A implementação (`06`) só começa quando a auditoria (`04`) resulta `PRONTO`.
-O mapa de rota por trilha (`small`/`medium`/`large`) está em
-[00-iniciar-incremento-sdd.md](00-iniciar-incremento-sdd.md).
-
-## Passos Do Fluxo
-
-| Passo | Objetivo | Arquivo |
-| --- | --- | --- |
-| Regras comuns | Fonte única de idioma, terminologia, severidade P0–P3, Definition of Done, identificadores e ciclo de status. | [_comum.md](_comum.md) |
-| 00 | Escolher a trilha de rigor e criar `incremento.yaml` (status `proposto`) e `brief.md`. | [00-iniciar-incremento-sdd.md](00-iniciar-incremento-sdd.md) |
-| 01 | Transformar a necessidade de produto em PRD claro e testável. | [01-criar-prd.md](01-criar-prd.md) |
-| 02 | Traduzir o PRD em plano técnico (trilhas `medium` e `large`). | [02-criar-techspec.md](02-criar-techspec.md) |
-| 03 | Quebrar a entrega em tasks BDD, cenários Gherkin e impactos contratuais. | [03-criar-tasks.md](03-criar-tasks.md) |
-| 04 | Auditar a especificação antes de implementar; só `PRONTO` libera a execução. | [04-auditar-especificacao.md](04-auditar-especificacao.md) |
-| 05 | Criar ou atualizar a governança local de agentes (`AGENTS.md`, regras, skills). | [05-instalar-rules-skills.md](05-instalar-rules-skills.md) |
-| 06 | Executar tasks com escopo controlado, testes e gates. | [06-executar-task.md](06-executar-task.md) |
-| 07 | Revisar a implementação em busca de bugs, regressões e violações de contrato. | [07-revisar-implementacao.md](07-revisar-implementacao.md) |
-| 08 | Validar a entrega como consumidor do sistema e registrar bugs reproduzíveis. | [08-executar-qa.md](08-executar-qa.md) |
-| 09 | Corrigir causa raiz, criar teste de regressão e revalidar. | [09-corrigir-bugs.md](09-corrigir-bugs.md) |
-| 10 | Aplicar impactos no contrato vivo, gerar fechamento e arquivar o incremento. | [10-consolidar-contrato-vivo.md](10-consolidar-contrato-vivo.md) |
-
-Auditoria (04), review (07), QA (08) e bugs (09) usam a mesma escala de
-severidade `P0`–`P3` definida em `_comum.md`; `P0`/`P1` abertos bloqueiam a
-consolidação.
-
-## Artefatos
-
-| Caminho | Propósito | Criado por |
-| --- | --- | --- |
-| `sdd/contratos/[dominio]/contrato.md` | Contrato vivo: comportamento atual e consolidado do domínio. | [10](10-consolidar-contrato-vivo.md) |
-| `sdd/incrementos/[feature]/incremento.yaml` | Ficha da entrega: trilha, domínios, caminhos e status do ciclo de vida. | [00](00-iniciar-incremento-sdd.md) |
-| `sdd/incrementos/[feature]/brief.md` | Retrato imutável da triagem; congela após o 00 e nunca contém requisitos. | [00](00-iniciar-incremento-sdd.md) |
-| `sdd/incrementos/[feature]/execucao.md` | Checklist canônico da execução do incremento. | [03](03-criar-tasks.md) |
-| `sdd/incrementos/[feature]/impacto-contratual/[dominio]/contrato.md` | Mudança de comportamento planejada (`NOVO`/`ALTERADO`/`REMOVIDO`). | [03](03-criar-tasks.md) |
-| `sdd/incrementos/[feature]/relatorio-fechamento.md` | Recibo final da entrega. | [10](10-consolidar-contrato-vivo.md) |
-| `.compozy/tasks/[feature]/_prd.md` | Requisitos de produto da entrega. | [01](01-criar-prd.md) |
-| `.compozy/tasks/[feature]/_techspec.md` | Plano técnico da entrega. | [02](02-criar-techspec.md) |
-| `.compozy/tasks/[feature]/INDEX.md` | Índice humano das tasks do workflow Compozy. | [03](03-criar-tasks.md) |
-| `.compozy/tasks/[feature]/task_NN.md` | Task executável, pequena e rastreável. | [03](03-criar-tasks.md) |
-| `.compozy/tasks/[feature]/feature/NNN__task.feature` | Cenários Gherkin da task. | [03](03-criar-tasks.md) |
-| `.compozy/tasks/[feature]/auditoria-especificacao.md` | Relatório da auditoria (`PRONTO`/`PRECISA_AJUSTES`/`BLOQUEADO`). | [04](04-auditar-especificacao.md) |
-| `AGENTS.md`, `.claude/rules/`, `.claude/skills/` | Governança local que ensina agentes a trabalhar no repositório. | [05](05-instalar-rules-skills.md) |
-| `.compozy/tasks/[feature]/adrs/` | Decisões arquiteturais com impacto duradouro. | [02](02-criar-techspec.md)/[03](03-criar-tasks.md) |
-| `.compozy/tasks/[feature]/reviews-001/` | `review-report.md` obrigatório (`APROVADO`/`REPROVADO`, gate do 10) e issues do review. | [07](07-revisar-implementacao.md) |
-| `.compozy/tasks/[feature]/qa/` | Relatórios de QA por task. | [08](08-executar-qa.md) |
-| `.compozy/tasks/[feature]/bugs.md` | Registro de bugs reproduzíveis. | [08](08-executar-qa.md) |
-| `.compozy/tasks/[feature]/bugfix-report.md` | Relatório de correção: causa raiz, regressão e revalidação. | [09](09-corrigir-bugs.md) |
-| `sdd/historico/YYYY-MM-DD-[feature]/` | Incremento arquivado no fechamento, incluindo o contexto de `.compozy/tasks/[feature]/`. | [10](10-consolidar-contrato-vivo.md) |
 
 ## Instalação
 
-Uma linha, dentro do repositório do projeto alvo (escopo por projeto) ou em
-qualquer lugar (escopo global):
+Dentro do projeto:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/cezaraf/sdd-template/main/install.sh | bash
 ```
 
-O instalador:
-
-- copia os prompts canônicos (`00`–`10` + `_comum.md`) para `sdd/prompts/`
-  (projeto) ou `~/.sdd/prompts/` (global);
-- gera as etapas como skills/commands `cz-*` para **Claude Code**
-  (`.claude/skills/`), **Codex** (`.agents/skills/` no projeto,
-  `~/.codex/skills/` global) e **OpenCode** (`.opencode/command/`) —
-  ex.: `/cz-iniciar-incremento`, `/cz-criar-prd`, `/cz-criar-techspec`
-  (prefixo configurável via `SDD_PREFIX=meu-prefixo`);
-- registra as etapas de verificação como **agents** de contexto isolado —
-  `cz-auditor-especificacao` (04), `cz-revisor-implementacao` (07) e
-  `cz-qa` (08) — para que auditoria, review e QA não herdem o viés da
-  sessão que implementou; as skills 04/07/08 delegam a eles
-  automaticamente (`context: fork` no Claude, `subtask` no OpenCode);
-- no modo projeto, cria `sdd/{contratos,incrementos,historico}`,
-  `.compozy/config.toml` e um bloco SDD idempotente no `AGENTS.md`;
-- instala o CLI do **Compozy** (brew → npm → go → binário de release com
-  checksum) e orienta rodar `compozy setup --all` uma vez.
-
-Variações:
+Opções:
 
 ```bash
-# escopo explícito
+# escopo
 curl -fsSL .../install.sh | bash -s -- --global
 curl -fsSL .../install.sh | bash -s -- --project /caminho/do/repo
 
-# só algumas ferramentas; sem Compozy; simulação; remoção
-curl -fsSL .../install.sh | bash -s -- --tools claude,opencode
+# ferramentas e Compozy
+curl -fsSL .../install.sh | bash -s -- --tools claude,codex,opencode
 curl -fsSL .../install.sh | bash -s -- --skip-compozy
+
+# versão, simulação e remoção
+curl -fsSL .../install.sh | bash -s -- --ref v2
 curl -fsSL .../install.sh | bash -s -- --dry-run
 curl -fsSL .../install.sh | bash -s -- --uninstall
-
-# versão/branch específico; fork próprio
-curl -fsSL .../install.sh | bash -s -- --ref v1.0
-SDD_REPO=usuario/meu-fork curl -fsSL .../install.sh | bash
 ```
 
-## Como Usar As Skills E Os Agents
+Requisito de execução: Bash >= 4.4 (o Bash 3 padrão de versões antigas do
+macOS não atende ao guard e ao hook fail-closed).
 
-### Invocando as etapas
+O instalador:
 
-Cada etapa do fluxo é uma skill/command com o mesmo nome nas três
-ferramentas; muda só a sintaxe de invocação:
+- copia prompts `00`–`14` e `_comum.md`;
+- gera skills/commands para Claude Code, Codex e OpenCode;
+- registra auditor, revisor e QA como agents isolados;
+- cria estrutura SDD e Compozy;
+- preserva `policies.yaml` e exemplos criados pelo projeto; o núcleo gerenciado
+  (guard, hook, fluxo, métricas, evals e workflow) é atualizado para a versão
+  canônica, com backup prévio de divergências locais;
+- instala o Compozy quando possível.
 
-| Ferramenta | Sintaxe | Exemplo |
-| --- | --- | --- |
-| Claude Code | `/nome [argumentos]` | `/cz-criar-prd filtrar-tarefas` |
-| OpenCode | `/nome [argumentos]` | `/cz-executar-task filtrar-tarefas task_02` |
-| Codex | `$nome [argumentos]` ou menu `/skills` | `$cz-iniciar-incremento painel de clima` |
+## Comandos
 
-Tudo que vier depois do nome é passado como argumento da etapa — slug do
-incremento (`[feature]`), contexto livre, caminhos. Sem argumento, a etapa
-pergunta o que precisar. A ordem correta das etapas aparece na descrição de
-cada skill (`SDD NN — …`) e no Mapa de rota por trilha do
-[00-iniciar-incremento-sdd.md](00-iniciar-incremento-sdd.md).
-
-Sessão típica (trilha `small`):
+O prefixo padrão é `cz`:
 
 ```text
-/cz-iniciar-incremento  quero filtrar tarefas por status
-/cz-criar-prd           filtrar-tarefas-por-status
-/cz-criar-tasks         filtrar-tarefas-por-status
-/cz-auditar-especificacao filtrar-tarefas-por-status   ← roda no agent auditor
-/cz-executar-task       filtrar-tarefas-por-status     (repita por task)
-/cz-executar-qa         filtrar-tarefas-por-status     ← roda no agent de QA
-/cz-consolidar-contrato-vivo filtrar-tarefas-por-status
+/cz-iniciar-incremento
+/cz-criar-prd
+/cz-criar-techspec
+/cz-criar-tasks
+/cz-auditar-especificacao
+/cz-instalar-rules-skills
+/cz-executar-task
+/cz-revisar-implementacao
+/cz-executar-qa
+/cz-corrigir-bugs
+/cz-preparar-pr
+/cz-validar-pr-merge
+/cz-deploy-verificar
+/cz-consolidar-contrato-vivo
+/cz-promover-aprendizados
 ```
 
-### Usando os agents
+No Codex, use `$cz-...` ou o menu de skills.
 
-Os três papéis de verificação rodam em **contexto isolado** — não herdam a
-conversa (nem o viés) da sessão que implementou:
+### Sessão típica `small`, risco baixo, alvo branch
 
-| Agent | Etapa | O que devolve |
+```text
+/cz-iniciar-incremento filtrar tarefas por status
+/cz-criar-prd filtrar-tarefas-por-status
+/cz-criar-tasks filtrar-tarefas-por-status
+/cz-auditar-especificacao filtrar-tarefas-por-status
+/cz-executar-task filtrar-tarefas-por-status task_01
+/cz-revisar-implementacao filtrar-tarefas-por-status
+/cz-executar-qa filtrar-tarefas-por-status
+/cz-preparar-pr filtrar-tarefas-por-status
+/cz-validar-pr-merge filtrar-tarefas-por-status
+/cz-consolidar-contrato-vivo filtrar-tarefas-por-status
+/cz-promover-aprendizados filtrar-tarefas-por-status
+```
+
+## Agents isolados
+
+| Agent | Passo | Resultado |
 | --- | --- | --- |
-| `cz-auditor-especificacao` | 04 | `auditoria-especificacao.md` com `PRONTO`/`PRECISA_AJUSTES`/`BLOQUEADO` |
-| `cz-revisor-implementacao` | 07 | `review-report.md` (`APROVADO`/`REPROVADO`) + issues `P0`–`P3` |
-| `cz-qa` | 08 | relatório de QA + `bugs.md` |
+| `cz-auditor-especificacao` | 04 | auditoria e parecer |
+| `cz-revisor-implementacao` | 07 | review-report e issues |
+| `cz-qa` | 08 | QA e bugs reproduzíveis |
 
-Você normalmente **não os chama diretamente**: as skills 04/07/08 já delegam
-a eles (`context: fork` no Claude Code, `subtask: true` no OpenCode) — invoque
-`/cz-revisar-implementacao` e o agent isolado faz o trabalho, devolvendo só o
-resultado para a sessão principal.
+Eles não devem herdar o viés da sessão que implementou.
 
-Invocação direta, quando quiser um parecer avulso:
+## Loop do fluxo
 
-- **Claude Code**: peça em linguagem natural ("use o agente
-  `cz-revisor-implementacao` para revisar o incremento X").
-- **OpenCode**: mencione `@cz-qa` na conversa.
-- **Codex**: os agents ficam em `.codex/agents/*.toml` e são usados pelo
-  mecanismo de subagents; as skills `$cz-…` continuam sendo a porta de
-  entrada do dia a dia.
+O próximo passo não depende de memória: o driver lê o estado do incremento,
+consulta os gates e responde o que fazer.
 
-Notas de plataforma: no Codex, reinicie o CLI após instalar; no Claude Code,
-a primeira instalação global pode exigir reiniciar a sessão para as skills
-aparecerem. A execução em lote das tasks (etapa 06 em escala) é papel do
-Compozy: `compozy tasks run [feature] --ide codex --stream`.
+```bash
+sdd/governanca/sdd-fluxo.sh [feature]         # próximo passo autorizado
+sdd/governanca/sdd-fluxo.sh [feature] --run   # aplica transições determinísticas
+sdd/governanca/sdd-fluxo.sh [feature] --json  # para automação
+```
 
-Os adaptadores apenas apontam para os prompts canônicos em `sdd/prompts/`
-(ou `~/.sdd/prompts/`) — o conteúdo tem fonte única; editar o prompt canônico
-muda o comportamento em todas as ferramentas ao mesmo tempo.
+`--run` só avança `proposto → especificado` após `pre-specify` e
+`em_execucao → validado` após `pre-validate`. Nunca aprova gate humano, nunca
+faz commit, push, merge ou deploy. A saída só propõe uma transição quando o
+mesmo guard que será usado no `--run` já a considera válida.
 
-## Regras De Ouro
+## Governança determinística
 
-O texto normativo completo vive em [_comum.md](_comum.md). Os cinco pontos que
-mais evitam retrabalho:
+Prompts orientam; hooks e CI bloqueiam.
 
-- Contrato vivo (`sdd/contratos/`) só muda no fechamento (passo `10`).
-- Implementação só começa com auditoria `PRONTO` (passo `04`).
-- Todo comportamento precisa de impacto contratual, cenário `SCN-*` e teste.
-- Severidade única `P0`–`P3`; `P0`/`P1` abertos bloqueiam a consolidação.
-- Sem commit, push ou PR sem autorização explícita do usuário.
+```bash
+sdd/governanca/sdd-guard.sh validate-policy
+sdd/governanca/sdd-guard.sh pre-specify [feature]
+sdd/governanca/sdd-guard.sh pre-implement [feature] task_NN
+sdd/governanca/sdd-guard.sh pre-complete [feature] task_NN
+sdd/governanca/sdd-guard.sh pre-validate [feature]
+sdd/governanca/sdd-guard.sh pre-merge [feature]
+sdd/governanca/sdd-guard.sh pre-production [feature]
+sdd/governanca/sdd-guard.sh pre-consolidate [feature]
+sdd/governanca/sdd-guard.sh protect <caminho>       # usado pelo hook
+sdd/governanca/sdd-guard.sh protect-ci <caminho>    # autoridade externa no CI
+sdd/governanca/sdd-guard.sh scan-secrets <arquivos> # usado pelo CI
+```
+
+O instalador registra `sdd-hook-claude.sh` como hook `PreToolUse` no
+`.claude/settings.json`. `Write`, `Edit`, `MultiEdit` e `NotebookEdit` passam
+por proteção de path e scan do conteúdo; Bash mutante é analisado e falha
+fechado quando o destino não pode ser determinado com segurança.
+
+O YAML registra aprovações, mas não é fonte de autoridade. Configure em
+`sdd/governanca/policies.yaml` um `authority.check_command` absoluto, fora do
+worktree, e fixe seu digest lowercase em `authority.check_sha256`. O checker
+recebe `SDD_AUTH_FEATURE`, `SDD_AUTH_GATE`, `SDD_AUTH_HEAD` e `SDD_AUTH_TARGET`;
+somente exit `0` com SHA-256 íntegro comprova a decisão. Sem checker, gates
+humanos e dispensas de qualidade permanecem bloqueados.
+
+Preencha também `quality_commands` com lint, typecheck, build, testes e E2E
+reais. Listas vazias exigem waiver externo, nunca significam verde. O workflow
+`.github/workflows/sdd-guard.yml` aplica os mesmos controles ao diff; mudanças
+de contrato usam `protect-ci` porque o atestado local não é transportado ao CI.
+O workflow extrai a policy do commit base para `SDD_TRUSTED_POLICIES`: um PR não
+pode trocar seu próprio checker por um comando permissivo. O bootstrap inicial,
+sem policy na base, requer aprovação administrativa fora desse workflow.
+
+`pre-consolidate` emite em `.git/sdd-state` um atestado curto, ligado ao `HEAD`
+e aos domínios de `impacto-contratual/`. `status: validado` e
+`fase: fechamento` sozinhos não abrem mais `sdd/contratos/`.
+
+## Métricas
+
+Cada passo registra seu marco no bloco `metricas:` do `incremento.yaml`; o
+fechamento consolida a série.
+
+```bash
+sdd/governanca/sdd-metricas.sh [feature]                     # relatório markdown
+sdd/governanca/sdd-metricas.sh [feature] --marcar data_merge # registra marco
+sdd/governanca/sdd-metricas.sh [feature] --csv               # upsert em sdd/metricas.csv
+sdd/governanca/sdd-metricas.sh [feature] --atualizar-relatorio
+```
+
+Leading: triagem→especificado, primeira task→validado, validado→merge, lead
+time total. Lagging: reauditorias, revisões do plano, issues de review, bugs,
+`P0`/`P1` abertos e aderência ao plano (diff real contra os arquivos previstos
+em `execucao.md`). Aumento de autonomia exige série histórica, não impressão.
+
+## Operação e incidentes
+
+```bash
+cp sdd/governanca/sdd-watch.sh.example sdd/governanca/sdd-watch.sh
+cp sdd/governanca/watch.yaml.example sdd/governanca/watch.yaml
+sdd/governanca/sdd-watch.sh
+```
+
+A detecção é determinística (baseline histórico e bandas 1σ/2σ/3σ, sem LLM):
+1σ registra, 2σ chama o agente apenas para diagnóstico somente-leitura e 3σ
+aciona runbook pré-aprovado/incident response. Exit `4` significa erro de
+configuração, coleta ou persistência e falha o job. O workflow restaura e salva
+o baseline entre execuções. O incidente entra no fluxo pela rota `incidente` do
+passo `00` e vira incremento.
+
+## Evals do harness
+
+```bash
+sdd/evals/run-evals.sh --tier1   # determinístico, roda em CI
+SDD_EVAL_AGENT="claude -p" \
+SDD_EVAL_JUDGE="claude -p" \
+  sdd/evals/run-evals.sh --all   # executor e oracle em contextos separados
+```
+
+`--all` sem executor/judge termina não zero. Evidência não vazia não é PASS: o
+judge precisa emitir um verdict JSON estruturado e consistente com os critérios.
+
+Os casos em `sdd/evals/` verificam invariantes do processo, como:
+
+- segurança não ser classificada como risco baixo;
+- implementação não iniciar sem auditoria;
+- contrato vivo não mudar antes do passo 13;
+- QA não marcar como aprovado o que não executou;
+- P0/P1 bloquear merge/deploy;
+- bugfix criar regressão;
+- produção exigir gate humano.
+
+Ao alterar prompts, rules, skills, agents, model routing ou hooks, rode as evals.
+O tier 1 é validado por mutação: quando uma checagem do guard é desativada de
+propósito, a suíte fica vermelha.
+
+## Migração da versão anterior
+
+A etapa de consolidação, antes numerada como passo 10, foi movida para
+`13-consolidar-contrato-vivo.md`. O nome do comando continua:
+
+```text
+cz-consolidar-contrato-vivo
+```
+
+Novos incrementos devem incluir os campos:
+
+```yaml
+status: proposto
+fase: triagem
+classificacao:
+  rigor: medium
+  risco: medio
+  autonomia: assistido
+  alvo_contrato: branch
+```
+
+Projetos com `policies.yaml` version 1 não recebem o guard novo silenciosamente.
+O instalador termina como `INCOMPLETA` e gera `policies.yaml.v2.example` para
+migração explícita, preservando a configuração existente.
+
+Incrementos antigos podem ser migrados de forma incremental. Não reescreva
+histórico consolidado.
+
+## Regras de ouro
+
+1. Contrato vivo só muda no passo `13`.
+2. Implementação só começa com auditoria pronta e gates aplicáveis.
+3. Todo comportamento rastreia até cenário, teste e evidência.
+4. Desvio material do plano exige revisão e reauditoria.
+5. Parecer do agente não substitui gate humano.
+6. Produção sempre exige autorização específica.
+7. Incidentes e retrabalho recorrente viram eval, policy, skill ou runbook.
+8. Sem commit, push, PR, merge ou deploy fora da autoridade registrada.
+
+Mais detalhes em [`docs/ai-native-sdlc.md`](docs/ai-native-sdlc.md).
