@@ -62,7 +62,22 @@ jobs:
           done <"$changed_all"
 
           trusted_root="$RUNNER_TEMP/sdd-trusted-controls"
-          mkdir -p "$trusted_root/governanca" "$trusted_root/evals/cases" "$trusted_root/.github/workflows"
+          mkdir -p "$trusted_root"
+
+          # As evals pertencem à base confiável e podem depender de qualquer
+          # artefato versionado dela (instalador, README, prompts e workflows).
+          # Materializar somente alguns scripts torna a suíte incompleta. A
+          # árvore candidata continua fora deste diretório e nunca é executada.
+          if ! git ls-tree -r "$base" \
+            | awk '$1 == "120000" || $1 == "160000" { unsafe=1 } END { exit unsafe }'; then
+            printf 'base confiável contém symlink ou submódulo; extração recusada\n' >&2
+            exit 1
+          fi
+          git archive --format=tar "$base" \
+            | tar --extract --file=- --directory="$trusted_root" \
+                --no-same-owner --no-same-permissions
+          mkdir -p "$trusted_root/governanca" "$trusted_root/evals/cases" \
+            "$trusted_root/.github/workflows"
 
           extract_base() {
             destination="$1"
