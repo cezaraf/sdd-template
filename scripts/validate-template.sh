@@ -92,6 +92,12 @@ grep -q 'trusted_guard' "$guard_workflow" \
   || fail "workflow não executa guard extraído da base"
 grep -Fq 'git archive --format=tar "$base"' "$guard_workflow" \
   || fail "workflow não materializa o snapshot completo da base confiável"
+grep -Fq 'commits/$HEAD_SHA/pulls' "$guard_workflow" \
+  || fail "workflow não resolve a proveniência do push por SHA"
+grep -q 'SDD_PUSH_FROM_MERGED_PR' "$guard_workflow" \
+  || fail "workflow não distingue push direto de merge de PR"
+grep -Fq '[ "${SDD_PUSH_FROM_MERGED_PR:-0}" = 1 ]' "$guard_workflow" \
+  || fail "workflow não preserva protect-ci em push direto"
 if grep -q 'SDD_CANDIDATE_EVALS' "$guard_workflow"; then
   fail "workflow privilegiado executa eval candidata do PR"
 fi
