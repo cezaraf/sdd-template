@@ -31,7 +31,7 @@ nomes oficiais de tecnologias, comandos, identificadores e campos de protocolo.
 - **Parecer do agente**: verificação baseada em evidência; não substitui decisão
   humana quando esta for exigida.
 - **Eval do harness**: caso de regressão que verifica o comportamento dos
-  prompts, skills, agents, policies e hooks.
+  prompts, skills, agents e policies.
 
 ## Dimensões de governança
 
@@ -213,6 +213,28 @@ Toda dispensa deve ser registrada no plano e auditada. Uma classificação
 `P0` e `P1` abertos bloqueiam merge, deploy e consolidação. `P2`/`P3` exigem
 registro e decisão de aceite.
 
+## Desenvolvimento incremental com TDD e mapa mental
+
+- Planeje primeiro o comportamento observável e os testes de aceitação; o agente
+  não inventa critérios para justificar a própria implementação.
+- Para mudança de comportamento testável, use **RED → GREEN → REFACTOR**:
+  registre o teste falhando pelo motivo esperado; implemente o mínimo para
+  passar; refatore com a suíte verde. Para configurações, documentação ou
+  atividades sem teste executável, explique a exceção e use outra prova.
+- Testes de unidade não substituem testes de contrato, integração ou jornadas
+  relevantes. Critérios de aceitação críticos exigem revisão humana ou
+  verificação independente da implementação.
+- Antes de editar, exponha módulos, diretórios, responsabilidades, fluxo de
+  execução e arquivos previstos. Reuse o desenho existente. Abstração nova
+  precisa resolver um problema atual e identificável, não um cenário futuro
+  hipotético.
+- Ao fechar cada task, entregue um **tour arquitetural curto**, atualizado com
+  arquivos efetivamente alterados, fluxos principais, decisões/desvios e um
+  roteiro de diagnóstico: onde começar a investigar uma falha típica. Não
+  substitua links para código real por explicações genéricas.
+- A aprovação humana incide em comportamento, escopo e decisão arquitetural
+  material; não interrompa cada ciclo RED/GREEN/REFACTOR para pedir permissão.
+
 ## Definition of Done
 
 Uma task só está concluída quando:
@@ -225,7 +247,9 @@ Uma task só está concluída quando:
 6. o diff permanece dentro do plano aprovado, ou a revisão do plano foi
    registrada;
 7. nenhuma regra crítica, segredo ou caminho protegido foi violado;
-8. evidências foram registradas no artefato correto.
+8. evidências foram registradas no artefato correto;
+9. a task registra a prova RED/GREEN/REFACTOR (ou exceção fundamentada) e
+   resume o mapa arquitetural real, incluindo o caminho de diagnóstico.
 
 ## Identificadores
 
@@ -268,31 +292,25 @@ Cada passo registra seu marco com
 `sdd-metricas.sh [feature] --marcar <campo>`; o passo `13` consolida a série em
 `sdd/metricas.csv`. Sem série histórica não se aumenta autonomia.
 
-## Enforcement determinístico
+## Enforcement determinístico sem hooks locais
 
-Regras críticas não devem depender apenas de texto no prompt. Quando o projeto
-permitir, instale hooks/CI para:
+As regras críticas continuam verificáveis por comandos explícitos do guard,
+evals e CI, sem interceptar cada operação do agente nem registrar hooks
+`PreToolUse` no Claude Code. Isso reduz travamentos durante a edição,
+mas **não** autoriza ignorar gates, publicar segredos ou modificar contratos
+vivos antecipadamente.
 
-- impedir alteração de `sdd/contratos/` antes do passo `13`;
-- impedir implementação sem auditoria `PRONTO`;
-- impedir conclusão sem gates e evidências;
-- impedir merge/deploy com `P0`/`P1`;
-- impedir segredos e acesso a arquivos protegidos;
-- executar formatadores, lint e validações;
-- validar transições de `status`/`fase`.
+Execute `sdd-guard.sh` nos pontos de transição relevantes. No CI, o workflow
+`.github/workflows/sdd-guard.yml` valida alterações, segredos e caminhos
+protegidos usando controles ancorados no commit base. A proteção entre
+verificações depende da disciplina do agente e da revisão do diff — não há
+bloqueio automático de cada escrita local.
 
-O template fornece `governanca/sdd-guard.sh` (gates, `protect`, `protect-ci` e
-scanner de segredos), `governanca/sdd-hook-claude.sh` (hook `PreToolUse`
-instalado pelo instalador), `governanca/policies.yaml.example`,
-`.github/workflows/sdd-guard.yml` e as evals em `evals/`.
-
-A janela de escrita de `sdd/contratos/` é estreita por construção. O gate
-`pre-consolidate` emite um atestado efêmero em `.git/sdd-state`, vinculado a
-feature, `HEAD`, validade curta e domínios declarados em `impacto-contratual/`.
-Só esses domínios podem ser escritos enquanto o atestado estiver válido.
-`status: validado` e `fase: fechamento` descrevem o estado, mas não liberam a
-escrita sozinhos. No CI, onde o token local não existe, `protect-ci` exige uma
-decisão externa específica para `contract_change`.
+O gate `pre-consolidate` emite atestado efêmero em `.git/sdd-state`, vinculado
+a feature, `HEAD`, validade curta e domínios declarados em
+`impacto-contratual/`. Apenas esses domínios são liberados pela verificação
+explícita de `protect`; no CI, `protect-ci` exige autorização externa
+`contract_change`. Nenhum hook local é instalado.
 
 ## Política de git e autoridade
 
