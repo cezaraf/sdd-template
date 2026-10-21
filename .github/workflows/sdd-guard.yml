@@ -94,7 +94,6 @@ jobs:
 
           trusted_policies="$trusted_root/governanca/policies.yaml"
           trusted_guard="$trusted_root/governanca/sdd-guard.sh"
-          trusted_hook="$trusted_root/governanca/sdd-hook-claude.sh"
           trusted_flow="$trusted_root/governanca/sdd-fluxo.sh"
           trusted_metrics="$trusted_root/governanca/sdd-metricas.sh"
           trusted_evals="$trusted_root/evals/run-evals.sh"
@@ -105,8 +104,6 @@ jobs:
             || { printf 'policy confiavel ausente na base; bootstrap exige aprovacao administrativa\n' >&2; exit 1; }
           extract_base "$trusted_guard" sdd/governanca/sdd-guard.sh governanca/sdd-guard.sh \
             || { printf 'guard confiavel ausente na base; bootstrap exige aprovacao administrativa\n' >&2; exit 1; }
-          extract_base "$trusted_hook" sdd/governanca/sdd-hook-claude.sh governanca/sdd-hook-claude.sh \
-            || { printf 'hook confiavel ausente na base\n' >&2; exit 1; }
           extract_base "$trusted_flow" sdd/governanca/sdd-fluxo.sh governanca/sdd-fluxo.sh \
             || { printf 'fluxo confiavel ausente na base\n' >&2; exit 1; }
           extract_base "$trusted_metrics" sdd/governanca/sdd-metricas.sh governanca/sdd-metricas.sh \
@@ -117,7 +114,7 @@ jobs:
             || { printf 'catalogo confiavel ausente na base\n' >&2; exit 1; }
           extract_base "$trusted_workflow" .github/workflows/sdd-guard.yml \
             || { printf 'workflow confiavel ausente na base\n' >&2; exit 1; }
-          chmod 0555 "$trusted_guard" "$trusted_hook" "$trusted_flow" "$trusted_metrics" "$trusted_evals"
+          chmod 0555 "$trusted_guard" "$trusted_flow" "$trusted_metrics" "$trusted_evals"
           chmod 0444 "$trusted_policies" "$trusted_catalog" "$trusted_workflow"
 
           candidate_guard=""
@@ -125,12 +122,6 @@ jobs:
             if [ -x "$candidate" ] && [ -s "$candidate" ]; then candidate_guard="$candidate"; break; fi
           done
           [ -n "$candidate_guard" ] || { printf 'sdd-guard.sh candidato ausente ou nao executavel\n' >&2; exit 1; }
-
-          candidate_hook=""
-          for candidate in sdd/governanca/sdd-hook-claude.sh governanca/sdd-hook-claude.sh; do
-            if [ -x "$candidate" ] && [ -s "$candidate" ]; then candidate_hook="$candidate"; break; fi
-          done
-          [ -n "$candidate_hook" ] || { printf 'sdd-hook-claude.sh candidato ausente ou nao executavel\n' >&2; exit 1; }
 
           candidate_evals=""
           for candidate in sdd/evals/run-evals.sh evals/run-evals.sh; do
@@ -161,10 +152,8 @@ jobs:
             || { printf 'workflow sdd-guard removido\n' >&2; exit 1; }
 
           bash -n "$trusted_guard"
-          bash -n "$trusted_hook"
           bash -n "$trusted_evals"
           bash -n "$candidate_guard"
-          bash -n "$candidate_hook"
           bash -n "$candidate_evals"
           bash -n "$candidate_flow"
           bash -n "$candidate_metrics"
@@ -175,10 +164,6 @@ jobs:
             grep -Fq "$marker" "$candidate_guard" \
               || { printf 'controle obrigatorio ausente do guard: %s\n' "$marker" >&2; exit 1; }
           done
-          for marker in scan-content authority-check; do
-            grep -Fq "$marker" "$candidate_hook" \
-              || { printf 'controle obrigatorio ausente do hook: %s\n' "$marker" >&2; exit 1; }
-          done
           for marker in authority check_command check_sha256 protected_paths quality_commands; do
             grep -Fq "$marker" "$candidate_policies" \
               || { printf 'controle obrigatorio ausente de policies: %s\n' "$marker" >&2; exit 1; }
@@ -188,40 +173,13 @@ jobs:
           grep -Fq 'pre-merge-ci' .github/workflows/sdd-guard.yml \
             || { printf 'pre-merge-ci removido do workflow\n' >&2; exit 1; }
 
-          if [ -f .claude/settings.json ]; then
-            [ ! -L .claude/settings.json ] \
-              || { printf '.claude/settings.json não pode ser symlink\n' >&2; exit 1; }
-            python3 - .claude/settings.json <<'PY'
-          import json
-          import sys
-
-          def unique_object(pairs):
-              result = {}
-              for key, value in pairs:
-                  if key in result:
-                      raise ValueError(f"duplicate key: {key}")
-                  result[key] = value
-              return result
-
-          with open(sys.argv[1], encoding="utf-8") as stream:
-              data = json.load(stream, object_pairs_hook=unique_object)
-          pre = data.get("hooks", {}).get("PreToolUse", [])
-          for matcher in ("Edit|Write|MultiEdit|NotebookEdit", "Bash"):
-              matches = [
-                  hook for item in pre if item.get("matcher") == matcher
-                  for hook in item.get("hooks", [])
-                  if hook.get("type") == "command"
-                  and hook.get("command") == "sdd/governanca/sdd-hook-claude.sh"
-              ]
-              if len(matches) != 1:
-                  raise SystemExit(f"hook SDD ausente ou duplicado para {matcher}")
-          PY
-          fi
-
+          # A instalação não registra hooks locais: configurações legadas do
+          # usuário podem existir, mas não exigimos PreToolUse do SDD.
+          # O CI continua validando segredos, diffs e autoridade por guard.
           removed=0
           while IFS= read -r -d '' path; do
             case "$path" in
-              .claude/settings.json|.github/workflows/sdd-guard.yml|governanca/sdd-guard.sh|governanca/sdd-hook-claude.sh|governanca/sdd-fluxo.sh|governanca/sdd-metricas.sh|governanca/policies.yaml.example|evals/run-evals.sh|evals/cases/core-contracts.yaml|scripts/validate-template.sh|install.sh|sdd/governanca/sdd-guard.sh|sdd/governanca/sdd-hook-claude.sh|sdd/governanca/sdd-fluxo.sh|sdd/governanca/sdd-metricas.sh|sdd/governanca/policies.yaml|sdd/evals/run-evals.sh|sdd/evals/cases/core-contracts.yaml)
+              .claude/settings.json|.github/workflows/sdd-guard.yml|governanca/sdd-guard.sh|governanca/sdd-fluxo.sh|governanca/sdd-metricas.sh|governanca/policies.yaml.example|evals/run-evals.sh|evals/cases/core-contracts.yaml|scripts/validate-template.sh|install.sh|sdd/governanca/sdd-guard.sh|sdd/governanca/sdd-fluxo.sh|sdd/governanca/sdd-metricas.sh|sdd/governanca/policies.yaml|sdd/evals/run-evals.sh|sdd/evals/cases/core-contracts.yaml)
                 printf 'remocao/rename de controle SDD bloqueada: %s\n' "$path" >&2
                 removed=1
                 ;;
@@ -232,8 +190,7 @@ jobs:
           {
             printf 'SDD_BASE=%s\n' "$base"
             printf 'SDD_GUARD=%s\n' "$trusted_guard"
-            printf 'SDD_HOOK=%s\n' "$trusted_hook"
-            printf 'SDD_EVALS=%s\n' "$trusted_evals"
+              printf 'SDD_EVALS=%s\n' "$trusted_evals"
             printf 'SDD_POLICIES_FILE=%s\n' "$trusted_policies"
             printf 'SDD_TRUSTED_POLICIES=%s\n' "$trusted_policies"
             printf 'SDD_CHANGED_ALL=%s\n' "$changed_all"
@@ -362,7 +319,7 @@ jobs:
                 ;;
               # Exclusoes que nao representam entrega de produto. Elas ainda
               # passam por secrets/protect e pelos checks de controles acima.
-              .claude/settings.json|.github/workflows/sdd-guard.yml|.github/workflows/template-evals.yml|.github/workflows/sdd-watch.yml.example|governanca/sdd-guard.sh|governanca/sdd-hook-claude.sh|governanca/sdd-fluxo.sh|governanca/sdd-metricas.sh|governanca/sdd-watch.sh.example|governanca/watch.yaml.example|governanca/policies.yaml.example|evals/run-evals.sh|evals/cases/core-contracts.yaml|evals/README.md|sdd/governanca/*|sdd/evals/*|scripts/validate-template.sh|install.sh|_comum.md|README.md|LICENSE|LICENSE.*|0[0-9]-*.md|1[0-4]-*.md|docs/ai-native-sdlc.md|docs/guia-para-leigos.md)
+              .claude/settings.json|.github/workflows/sdd-guard.yml|.github/workflows/template-evals.yml|.github/workflows/sdd-watch.yml.example|governanca/sdd-guard.sh|governanca/sdd-fluxo.sh|governanca/sdd-metricas.sh|governanca/sdd-watch.sh.example|governanca/watch.yaml.example|governanca/policies.yaml.example|evals/run-evals.sh|evals/cases/core-contracts.yaml|evals/README.md|sdd/governanca/*|sdd/evals/*|scripts/validate-template.sh|install.sh|_comum.md|README.md|LICENSE|LICENSE.*|0[0-9]-*.md|1[0-4]-*.md|docs/ai-native-sdlc.md|docs/guia-para-leigos.md)
                 ;;
               *) product_change=1 ;;
             esac
