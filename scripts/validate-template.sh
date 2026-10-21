@@ -6,7 +6,7 @@ cd "$root"
 
 fail() { printf 'template inválido: %s\n' "$*" >&2; exit 1; }
 
-# O guard/hook canônicos usam arrays associativos/mapfile e parsing JSON
+# O guard e o runner usam arrays associativos/mapfile e parsing JSON
 # fail-closed. Em macOS com Bash 3, a dependência deve falhar explicitamente.
 if [ "${BASH_VERSINFO[0]}" -lt 4 ] \
    || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -lt 4 ]; }; then
@@ -50,7 +50,6 @@ test -s governanca/policies.yaml.example || fail "policies ausentes"
 test -x governanca/sdd-guard.sh || fail "guard ausente ou não executável"
 test -x governanca/sdd-fluxo.sh || fail "driver de fluxo ausente ou não executável"
 test -x governanca/sdd-metricas.sh || fail "script de métricas ausente ou não executável"
-test -x governanca/sdd-hook-claude.sh || fail "hook do Claude ausente ou não executável"
 test -s governanca/sdd-watch.sh.example || fail "detector operacional ausente"
 test -s governanca/watch.yaml.example || fail "config do detector ausente"
 test -s evals/cases/core-contracts.yaml || fail "catálogo de evals ausente"
@@ -68,7 +67,7 @@ awk '
 ' install.sh || fail "src_is_complete não exige policy e workflow canônicos"
 
 for script in install.sh governanca/sdd-guard.sh governanca/sdd-fluxo.sh \
-  governanca/sdd-metricas.sh governanca/sdd-hook-claude.sh \
+  governanca/sdd-metricas.sh \
   governanca/sdd-watch.sh.example evals/run-evals.sh scripts/validate-template.sh; do
   bash -n "$script" || fail "sintaxe inválida: $script"
 done
@@ -311,8 +310,8 @@ shopt -u nullglob dotglob
 [ "${#symlink_entries[@]}" -eq 0 ] \
   || fail "instalador escreveu fora do projeto através de symlink"
 
-# Instalação em projeto preexistente: settings com substring enganosa, hooks e
-# workflow do usuário, AGENTS sem newline e um núcleo sem manifest.
+# Migração de projeto preexistente: remover hooks SDD antigos sem afetar hooks
+# de terceiros, workflow local, AGENTS sem newline ou customizações.
 project="$validation_tmp/project"
 mkdir -p "$project/.claude" "$project/.github/workflows" "$project/sdd/governanca"
 git -C "$project" init -q
@@ -332,6 +331,18 @@ cat >"$project/.claude/settings.json" <<'JSON'
         "matcher": "Read",
         "hooks": [
           {"type": "command", "command": "custom-read-hook"}
+        ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {"type": "command", "command": "sdd/governanca/sdd-hook-claude.sh"}
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {"type": "command", "command": "sdd/governanca/sdd-hook-claude.sh"}
         ]
       }
     ],
@@ -373,7 +384,6 @@ expected_files=(
   sdd/governanca/sdd-guard.sh
   sdd/governanca/sdd-fluxo.sh
   sdd/governanca/sdd-metricas.sh
-  sdd/governanca/sdd-hook-claude.sh
   sdd/governanca/sdd-template.env
   sdd/evals/run-evals.sh
   sdd/evals/cases/core-contracts.yaml
@@ -400,7 +410,7 @@ grep -q 'registre lacunas' "$project/.claude/agents/equipe-x-auditor-especificac
   || fail "agent instalado não registra lacunas"
 
 python3 - "$project/.claude/settings.json" <<'PY' \
-  || fail "merge estrutural dos hooks não preservou settings"
+  || fail "remoção dos hooks SDD não preservou configurações de terceiros"
 import json
 import sys
 
@@ -412,14 +422,11 @@ assert data["hooks"]["PostToolUse"][0]["hooks"][0]["command"] == "custom-post-ho
 pre = data["hooks"]["PreToolUse"]
 assert any(item.get("matcher") == "Read" for item in pre)
 for matcher in ("Edit|Write|MultiEdit|NotebookEdit", "Bash"):
-    matches = [
-        hook
+    assert not any(
+        hook.get("command") == "sdd/governanca/sdd-hook-claude.sh"
         for item in pre if item.get("matcher") == matcher
         for hook in item.get("hooks", [])
-        if hook.get("type") == "command"
-        and hook.get("command") == "sdd/governanca/sdd-hook-claude.sh"
-    ]
-    assert len(matches) == 1, (matcher, matches)
+    ), matcher
 PY
 
 # A segunda instalação omite SDD_PREFIX: deve reutilizar a configuração
@@ -449,7 +456,7 @@ test -x "$project/sdd/governanca/sdd-guard.sh" \
 # de promover a versão canônica.
 manifest_count="$(awk -F '\t' '$1 == "file" { n++ } END { print n + 0 }' \
   "$project/sdd/.sdd-template/manifest-v1.tsv")"
-[ "$manifest_count" -eq 8 ] || fail "manifest não cobre bundle completo"
+[ "$manifest_count" -eq 7 ] || fail "manifest não cobre bundle completo"
 shopt -s nullglob
 initial_backups=("$project"/sdd/.sdd-template/backups/sdd/governanca/sdd-guard.sh/*.bak)
 shopt -u nullglob
@@ -472,7 +479,7 @@ shopt -u nullglob
 [ "$custom_backup_found" -eq 1 ] || fail "customização gerenciada não foi preservada em backup"
 
 # Runner e catálogo instalados permanecem coerentes; o Tier 1 também exercita
-# guard, fluxo, hook, traversal, placeholders e workflow no projeto destino.
+# guard, fluxo, traversal, placeholders e workflow no projeto destino.
 "$project/sdd/evals/run-evals.sh" --list >/dev/null \
   || fail "runner/catálogo instalados divergiram"
 installed_tier1_log="$validation_tmp/installed-tier1.log"
@@ -564,12 +571,11 @@ watch_rc=0
 rm "$project/.sdd-watch"
 mv "$project/.sdd-watch.valid" "$project/.sdd-watch"
 
-# Hook real: JSON válido de Edit em contrato deve bloquear com exit 2.
-hook_rc=0
-printf '{"tool_name":"Edit","tool_input":{"file_path":"%s","old_string":"antes","new_string":"conteúdo seguro"}}' \
-  "$project/sdd/contratos/demo/contrato.md" \
-  | (cd "$project" && sdd/governanca/sdd-hook-claude.sh) >/dev/null 2>&1 || hook_rc=$?
-[ "$hook_rc" -eq 2 ] || fail "hook deveria bloquear contrato vivo (exit $hook_rc)"
+# A verificação explícita de caminho protegido continua funcional sem hook.
+guard_rc=0
+(cd "$project" && sdd/governanca/sdd-guard.sh protect sdd/contratos/demo/contrato.md \
+  >/dev/null 2>&1) || guard_rc=$?
+[ "$guard_rc" -eq 2 ] || fail "guard deveria proteger contrato vivo (exit $guard_rc)"
 
 # Uninstall usa temporário imprevisível e nunca segue AGENTS.md.tmp preexistente.
 uninstall_outside="$validation_tmp/uninstall-outside.txt"
@@ -661,8 +667,7 @@ test ! -e "$legacy_dry_project/sdd/governanca/policies.yaml.v2.example" \
 test ! -e "$legacy_dry_project/sdd/.sdd-template" \
   || fail "--dry-run alterou metadados do projeto"
 
-# Dependências do núcleo são verificadas antes da primeira escrita, não apenas
-# ao instalar o adaptador do Claude.
+# Dependências do núcleo são verificadas antes da primeira escrita.
 no_python_bin="$validation_tmp/no-python-bin"
 no_python_project="$validation_tmp/no-python-project"
 mkdir -p "$no_python_bin" "$no_python_project"
@@ -679,8 +684,8 @@ grep -q 'python3' "$validation_tmp/no-python.log" \
 test ! -e "$no_python_project/sdd" \
   || fail "dependência ausente produziu instalação parcial"
 
-# JSON preexistente inválido nunca é sobrescrito e a instalação termina
-# explicitamente incompleta (exit 3).
+# JSON preexistente inválido não pode ser manipulado durante a limpeza de
+# hooks legados. A instalação é sinalizada como incompleta (exit 3).
 invalid_json_project="$validation_tmp/invalid-json"
 mkdir -p "$invalid_json_project/.claude"
 git -C "$invalid_json_project" init -q
@@ -691,8 +696,19 @@ invalid_rc=0
   >"$validation_tmp/invalid-json.log" 2>&1 || invalid_rc=$?
 [ "$invalid_rc" -eq 3 ] || fail "settings inválido deveria terminar instalação com exit 3 (exit $invalid_rc)"
 grep -q 'INCOMPLETA' "$validation_tmp/invalid-json.log" \
-  || fail "falha de enforcement não foi marcada como INCOMPLETA"
+  || fail "falha de limpeza segura não foi marcada como INCOMPLETA"
 cmp -s "$validation_tmp/invalid-settings.before" "$invalid_json_project/.claude/settings.json" \
   || fail "settings JSON inválido foi sobrescrito"
+
+# Instalação nova não cria hooks nem .claude/settings.json desnecessário.
+fresh_project="$validation_tmp/fresh-without-hooks"
+mkdir -p "$fresh_project"
+git -C "$fresh_project" init -q
+"$root/install.sh" --project "$fresh_project" --tools claude --skip-compozy \
+  >"$validation_tmp/fresh-install.log"
+test ! -e "$fresh_project/.claude/settings.json" \
+  || fail "instalação nova criou settings.json para registrar hook"
+test ! -e "$fresh_project/sdd/governanca/sdd-hook-claude.sh" \
+  || fail "instalação nova distribuiu hook legado"
 
 printf 'template válido\n'
