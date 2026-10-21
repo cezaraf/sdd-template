@@ -25,6 +25,13 @@ Preferência:
 
 Nunca transforme incapacidade de executar em aprovação.
 
+## Compreensão do sistema
+
+Compare o mapa arquitetural apresentado pela task com os arquivos e fluxos
+reais. Informe ao responsável onde estão as principais responsabilidades e
+por onde começar a investigar uma falha representativa; se não houver evidência,
+registre a lacuna.
+
 ## Checklist por cenário
 
 - entrada e pré-condições;
