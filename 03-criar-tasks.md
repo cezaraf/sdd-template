@@ -20,6 +20,10 @@ Atualize `fase: planejamento`.
 ## Regras críticas
 
 - Não implemente código ou testes.
+- Quebre cada comportamento testável em ciclos curtos Outside-In: cenário de
+  aceite → teste RED → implementação mínima GREEN → REFACTOR.
+- Planeje o mapa de módulos/pastas, componentes existentes reutilizados e
+  responsáveis por cada fluxo. Abstrações novas exigem justificativa concreta.
 - Cada comportamento alterado deve existir no impacto contratual.
 - Cada task deve cobrir RF/BR/RNF, comportamento, `SCN-*` e `TST-*`.
 - Backend e frontend devem ser tasks separadas quando a TechSpec indicar duas
@@ -67,15 +71,32 @@ Valores de `type`: `frontend`, `backend`, `docs`, `test`, `infra`, `refactor`,
 - Arquivos esperados:
 - Contratos afetados:
 
+## Mapa arquitetural previsto
+
+- Componentes existentes reutilizados:
+- Arquivos e diretórios a criar/alterar (por quê):
+- Fluxo ponta a ponta que a task modifica:
+- Limites de complexidade e o que não construir:
+
+## Ciclo de testes primeiro
+
+- Cenário/critério de aceite (definido antes da implementação):
+- Teste RED e falha esperada:
+- Implementação mínima GREEN:
+- Refatoração e verificações após GREEN:
+- Exceção fundamentada, se não aplicável:
+
 ## Dependências
 
 - [task ou "Nenhuma"]
 
 ## Subtasks
 
-- [ ] Implementar a menor superfície coerente.
+- [ ] Executar teste RED e registrar a falha esperada.
+- [ ] Implementar a menor superfície coerente para GREEN.
+- [ ] Refatorar preservando os testes verdes.
 - [ ] Aplicar validação, autorização e tratamento de erro.
-- [ ] Implementar testes unitários/integração/contrato.
+- [ ] Complementar testes unitários/integração/contrato conforme risco.
 - [ ] Ligar cada `SCN-*` a teste automatizado.
 - [ ] Atualizar documentação afetada, sem consolidar contrato vivo.
 
@@ -93,6 +114,10 @@ Valores de `type`: `frontend`, `backend`, `docs`, `test`, `infra`, `refactor`,
 
 [preenchida durante a execução; esta é a única seção livre para anexar provas
 sem mudar o conteúdo material auditado da task]
+
+Inclua: comandos e resultados RED/GREEN/REFACTOR, exceção justificada quando
+cabível, arquivos efetivamente alterados versus previstos, breve tour dos
+componentes/fluxos e onde depurar uma falha típica.
 ```
 
 ## Gherkin
@@ -195,7 +220,7 @@ Inclua apenas seções aplicáveis.
 
 ## Provas de conclusão
 
-| TST/SCN | Evidência | Comando/fluxo | Resultado esperado |
+| TST/SCN | Evidência RED, GREEN e REFACTOR ou exceção | Comando/fluxo | Resultado esperado |
 | --- | --- | --- | --- |
 
 ## Checklist de tasks
