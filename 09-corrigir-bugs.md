@@ -23,7 +23,9 @@ Corrija causa raiz, crie regressão e revalide as superfícies afetadas.
 - Identifique se a causa está em requisito, contrato, plano, backend, frontend,
   dados, integração, teste ou operação.
 - Corrija o artefato certo, não apenas o sintoma.
-- Toda correção precisa de teste que falharia sem ela.
+- Toda correção precisa de teste que falharia sem ela. Registre RED reproduzindo
+  o defeito, GREEN após a menor correção e REFACTOR sem regressão;
+  quando impossível automatizar, explique e use evidência alternativa.
 - Não consolide contrato vivo.
 - Mudança material de escopo/contrato exige revisão do plano e auditoria.
 - Atualize issue/bug com causa, correção, regressão e evidência.
