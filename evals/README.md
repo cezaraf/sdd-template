@@ -8,7 +8,7 @@ Rode ao alterar:
 
 - `_comum.md` ou prompts;
 - skills/agents;
-- policies/hooks;
+- policies e gates explícitos;
 - modelo ou roteamento;
 - permissões de tools;
 - instalador;
