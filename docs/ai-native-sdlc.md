@@ -34,7 +34,7 @@ Responsável por:
 
 - máquina de estados;
 - autoridade por risco/autonomia;
-- hooks e CI;
+- gates explícitos e CI;
 - branches/worktrees;
 - PR, merge e deploy;
 - health checks e rollback;
@@ -95,6 +95,21 @@ verificar automaticamente:
 
 O plano é revisável, não imutável. Toda revisão registra motivo e impacto.
 
+## Assimilação arquitetural e TDD
+
+O fluxo gera evidência técnica para o responsável compreender o sistema, não
+apenas para provar que os testes passaram. Antes de codificar, o agente propõe
+o mapa de módulos, diretórios, responsabilidades, arquivos e caminho principal
+de execução. Mudanças materiais são discutidas, inclusive alternativas mais
+simples. Durante a task, executa Outside-In TDD: RED documentado, GREEN mínimo
+e REFACTOR com os testes verdes. Ao finalizar, compara a estrutura prevista
+com os arquivos reais e explica onde investigar falhas típicas.
+
+A ausência de hooks locais é deliberada: não existe interceptação automática
+de cada chamada de ferramenta. O enforcement acontece nos comandos do guard,
+na revisão do diff e em CI. Isso reduz atrito, mas exige disciplina para não
+ignorar gates e branch protection.
+
 ## Enforcement
 
 ### Consultivo
@@ -110,8 +125,7 @@ O plano é revisável, não imutável. Toda revisão registra motivo e impacto.
 
 - `sdd/governanca/policies.yaml` (caminhos protegidos, segredos, autoridade);
 - `sdd/governanca/sdd-guard.sh` (gates, `protect`, `protect-ci`, segredos);
-- `sdd/governanca/sdd-hook-claude.sh` como hook `PreToolUse`, instalado
-  automaticamente em `.claude/settings.json`;
+- comandos explícitos do guard nas transições (sem hooks `PreToolUse` locais);
 - `.github/workflows/sdd-guard.yml` (guard/evals extraídos da base sobre o diff
   candidato, sem executar scripts propostos pelo PR privilegiado);
 - branch protection;
@@ -213,7 +227,7 @@ produzindo decisões seguras quando mudam:
 - context window;
 - skills;
 - agents;
-- hooks;
+- guard e CI;
 - policies;
 - tool permissions.
 
@@ -237,7 +251,7 @@ Comece por:
 
 1. plano persistido;
 2. gate duplo;
-3. guard de contrato vivo/auditoria + hook no harness;
+3. guard de contrato vivo/auditoria explícito + verificação no CI;
 4. evals tier 1 no CI;
 5. PR/merge dentro do fluxo;
 6. alvo `branch`;
