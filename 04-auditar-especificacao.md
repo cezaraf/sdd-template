@@ -32,7 +32,11 @@ auditar → corrigir artefatos permitidos → validar → reaudar
 - plano com base, arquivos, ordem, riscos, alternativas e provas;
 - tasks pequenas e dependências acíclicas;
 - cobertura backend/frontend/contratos/dados;
-- Gherkin observável e testes planejados;
+- Gherkin observável, critérios de aceitação independentes e ciclos TDD
+  planejados antes de escrever a implementação;
+- estrutura prevista de pastas/módulos, reutilização do código existente e
+  ausência de abstrações especulativas;
+- pontos de diagnóstico suficientes para o responsável manter um mapa mental;
 - segurança, privacidade, acessibilidade, desempenho e operação;
 - TechSpec/review/PR/deploy obrigatórios pelo risco e alvo;
 - gates humanos obrigatórios;
