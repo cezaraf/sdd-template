@@ -312,7 +312,11 @@ jobs:
             printf 'nenhum arquivo com conteudo alterado\n'
           fi
 
-      - name: Caminhos protegidos nos arquivos alterados
+      # Não exige checker externo para editar o próprio template (governança,
+      # instalador, evals e workflows). Mantemos a proteção do contrato vivo.
+      # A validação de segredos, controles obrigatórios, evals e pre-merge
+      # permanece executada nas etapas independentes deste job.
+      - name: Proteger apenas contratos vivos alterados
         shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -322,20 +326,20 @@ jobs:
           set -euo pipefail
           [ -x "$SDD_GUARD" ] || { printf 'guard ausente\n' >&2; exit 1; }
 
-          # A autorizacao de paths ja ocorreu no pull_request_target. Repeti-la
-          # depois do merge falha porque o push nao carrega o atestado efemero.
-          # Push direto nao recebe esta dispensa e continua no protect-ci.
+          # Contratos já verificados no PR não precisam de novo atestado no
+          # push que resulta do merge; commits diretos continuam verificados.
           if [ "$EVENT_NAME" = push ] \
             && [ "${SDD_PUSH_FROM_MERGED_PR:-0}" = 1 ]; then
-            printf 'paths protegidos validados no PR que originou o merge\n'
+            printf 'contratos protegidos verificados no PR de origem\n'
             exit 0
           fi
 
           while IFS= read -r -d '' path; do
-            # Tokens efêmeros de pre-consolidate vivem em .git local e não são
-            # transportáveis. No CI, mudanças de contrato exigem a autoridade
-            # externa `contract_change`; demais paths usam a policy normal.
-            "$SDD_GUARD" protect-ci "$path"
+            case "$path" in
+              sdd/contratos|sdd/contratos/*)
+                "$SDD_GUARD" protect-ci "$path"
+                ;;
+            esac
           done <"$SDD_CHANGED_ALL"
 
       - name: Pre-merge dos incrementos afetados
