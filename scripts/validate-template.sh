@@ -707,9 +707,15 @@ partial_outside="$validation_tmp/partial-outside"
 mkdir -p "$partial_project/.claude" "$partial_project/sdd/governanca" \
   "$partial_project/sdd/evals" "$partial_project/sdd/.sdd-template"
 git -C "$partial_project" init -q
-cp "$root/governanca/sdd-hook-claude.sh" \
-  "$partial_project/sdd/governanca/sdd-hook-claude.sh"
-legacy_digest="$(sha256sum "$partial_project/sdd/governanca/sdd-hook-claude.sh" | awk '{print $1}')"
+printf '#!/usr/bin/env bash\nexit 0\n' >"$partial_project/sdd/governanca/sdd-hook-claude.sh"
+chmod 0755 "$partial_project/sdd/governanca/sdd-hook-claude.sh"
+legacy_digest="$(python3 - "$partial_project/sdd/governanca/sdd-hook-claude.sh" <<'PY'
+import hashlib
+import pathlib
+import sys
+print(hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest())
+PY
+)"
 printf 'manifest\t1\nfile\tsdd/governanca/sdd-hook-claude.sh\t%s\n' \
   "$legacy_digest" >"$partial_project/sdd/.sdd-template/manifest-v1.tsv"
 printf 'arquivo externo preservado\n' >"$partial_outside"
