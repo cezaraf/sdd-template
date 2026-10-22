@@ -700,6 +700,56 @@ grep -q 'INCOMPLETA' "$validation_tmp/invalid-json.log" \
 cmp -s "$validation_tmp/invalid-settings.before" "$invalid_json_project/.claude/settings.json" \
   || fail "settings JSON inválido foi sobrescrito"
 
+# Regressão: uma instalação parcial não deve deixar hook ativo apontando
+# para executável legado removido. Falha posterior no bundle é intencional.
+partial_project="$validation_tmp/partial-legacy"
+partial_outside="$validation_tmp/partial-outside"
+mkdir -p "$partial_project/.claude" "$partial_project/sdd/governanca" \
+  "$partial_project/sdd/evals" "$partial_project/sdd/.sdd-template"
+git -C "$partial_project" init -q
+cp "$root/governanca/sdd-hook-claude.sh" \
+  "$partial_project/sdd/governanca/sdd-hook-claude.sh"
+legacy_digest="$(sha256sum "$partial_project/sdd/governanca/sdd-hook-claude.sh" | awk '{print $1}')"
+printf 'manifest\t1\nfile\tsdd/governanca/sdd-hook-claude.sh\t%s\n' \
+  "$legacy_digest" >"$partial_project/sdd/.sdd-template/manifest-v1.tsv"
+printf 'arquivo externo preservado\n' >"$partial_outside"
+ln -s "$partial_outside" "$partial_project/sdd/evals/run-evals.sh"
+cat >"$partial_project/.claude/settings.json" <<'JSON'
+{
+  "hooks": {
+    "PreToolUse": [
+      {"matcher": "Bash", "hooks": [
+        {"type": "command", "command": "sdd/governanca/sdd-hook-claude.sh"},
+        {"type": "command", "command": "custom-bash-hook"}
+      ]}
+    ]
+  }
+}
+JSON
+partial_rc=0
+"$root/install.sh" --project "$partial_project" --tools claude \
+  --skip-compozy >"$validation_tmp/partial-install.log" 2>&1 || partial_rc=$?
+[ "$partial_rc" -ne 0 ] || fail "bundle inseguro deveria interromper a instalação"
+grep -q 'destino gerenciado contém symlink' "$validation_tmp/partial-install.log" \
+  || fail "fixture de falha parcial não exercitou destino inseguro"
+python3 - "$partial_project/.claude/settings.json" <<'PY' \
+  || fail "falha parcial deixou hook SDD ativo ou afetou hook de terceiro"
+import json
+import sys
+with open(sys.argv[1], encoding="utf-8") as handle:
+    data = json.load(handle)
+commands = [
+    item["command"]
+    for entry in data.get("hooks", {}).get("PreToolUse", [])
+    for item in entry.get("hooks", [])
+]
+assert commands == ["custom-bash-hook"], commands
+PY
+grep -qx 'arquivo externo preservado' "$partial_outside" \
+  || fail "falha parcial modificou arquivo fora do projeto"
+test ! -e "$partial_project/sdd/governanca/sdd-hook-claude.sh" \
+  || fail "arquivo gerenciado legado não foi aposentado na migração parcial"
+
 # Instalação nova não cria hooks nem .claude/settings.json desnecessário.
 fresh_project="$validation_tmp/fresh-without-hooks"
 mkdir -p "$fresh_project"
