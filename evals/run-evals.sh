@@ -66,19 +66,19 @@ while [ $# -gt 0 ]; do
 done
 
 TIER1_CASES=(
-  EVAL-002 EVAL-002b EVAL-006b EVAL-007
-  EVAL-010 EVAL-010b EVAL-010c EVAL-011 EVAL-011b
-  EVAL-013 EVAL-013b EVAL-014 EVAL-015 EVAL-016 EVAL-017 EVAL-018
-  EVAL-019 EVAL-019b EVAL-020 EVAL-021 EVAL-021b EVAL-021c
-  EVAL-022 EVAL-023 EVAL-024 EVAL-025 EVAL-026
-  EVAL-027 EVAL-028 EVAL-029 EVAL-030 EVAL-031 EVAL-031b EVAL-031c EVAL-031d EVAL-032 EVAL-032b
-  EVAL-033 EVAL-034 EVAL-035 EVAL-036 EVAL-037 EVAL-038
-  EVAL-039 EVAL-040 EVAL-041 EVAL-041b EVAL-042 EVAL-042b EVAL-042c EVAL-042d EVAL-042e
-  EVAL-043 EVAL-044 EVAL-045 EVAL-045b EVAL-046 EVAL-047 EVAL-048
-  EVAL-049 EVAL-050 EVAL-051 EVAL-052 EVAL-053 EVAL-053b EVAL-053c EVAL-054 EVAL-055 EVAL-055b
-  EVAL-056 EVAL-056b EVAL-056c EVAL-057 EVAL-058 EVAL-058b EVAL-059 EVAL-060 EVAL-060b
-  EVAL-061 EVAL-062 EVAL-063 EVAL-064 EVAL-065 EVAL-066 EVAL-067 EVAL-068 EVAL-069 EVAL-070 EVAL-071
-  EVAL-072 EVAL-073
+ EVAL-002 EVAL-002b EVAL-006b EVAL-007
+ EVAL-010 EVAL-010b EVAL-010c EVAL-011 EVAL-011b
+ EVAL-013 EVAL-013b EVAL-014 EVAL-015 EVAL-016 EVAL-017 EVAL-018
+ EVAL-019 EVAL-019b EVAL-020 EVAL-021 EVAL-021b EVAL-021c
+ EVAL-022 EVAL-024 EVAL-025 EVAL-026
+ EVAL-027 EVAL-028 EVAL-030 EVAL-031 EVAL-031b EVAL-031c EVAL-031d EVAL-032 EVAL-032b
+ EVAL-034 EVAL-035 EVAL-036 EVAL-037 EVAL-038
+ EVAL-040 EVAL-041 EVAL-041b EVAL-042 EVAL-042b EVAL-042c EVAL-042d EVAL-042e
+ EVAL-043 EVAL-044 EVAL-045 EVAL-045b EVAL-046 EVAL-047 EVAL-048
+ EVAL-049 EVAL-050 EVAL-052 EVAL-054 EVAL-055 EVAL-055b
+ EVAL-057 EVAL-058 EVAL-058b EVAL-059 
+ EVAL-063 EVAL-064 EVAL-065 EVAL-066 EVAL-067 EVAL-068 EVAL-069 EVAL-070 EVAL-071
+ EVAL-073
 )
 
 AGENTIC_CASES=(
@@ -345,20 +345,6 @@ rewrite_file() {
     rm -f "$tmp"
     return 1
   fi
-}
-
-write_hook_payload() {
-  local file="$1" hook_command="$2"
-  python3 - "$file" "$hook_command" <<'PY'
-import json
-import pathlib
-import sys
-
-pathlib.Path(sys.argv[1]).write_text(
-    json.dumps({"tool_name": "Bash", "tool_input": {"command": sys.argv[2]}}) + "\n",
-    encoding="utf-8",
-)
-PY
 }
 
 write_review() {
@@ -710,18 +696,6 @@ eval_tier1() {
   expect_exit 2 "EVAL-022" "traversal sob contratos continua protegido" \
     bash -c "cd '$p' && '$guard' protect temporario/../sdd/contratos/demo/contrato.md"
 
-  # EVAL-023 — o hook deve interpretar o JSON e propagar o bloqueio exato (2).
-  p="$(new_fixture ev023)"
-  mkdir -p "$p/sdd/governanca"
-  cp "$root/governanca/sdd-guard.sh" "$p/sdd/governanca/sdd-guard.sh"
-  cp "$root/governanca/sdd-hook-claude.sh" "$p/sdd/governanca/sdd-hook-claude.sh"
-  chmod 0755 "$p/sdd/governanca/sdd-guard.sh" "$p/sdd/governanca/sdd-hook-claude.sh"
-  payload="$fixture_root/ev023-hook.json"
-  printf '{"tool_input":{"old_string":"antes","new_string":"conteudo seguro","file_path":"%s"},"irrelevant":"sdd-hook-claude.sh","tool_name":"Edit"}\n' \
-    "$p/sdd/contratos/demo/contrato.md" >"$payload"
-  expect_exit 2 "EVAL-023" "hook bloqueia JSON estruturado de edição protegida" \
-    bash -c "cd '$p' && sdd/governanca/sdd-hook-claude.sh < '$payload'"
-
   # EVAL-024 — placeholder literal nunca pode ser confundido com incremento válido.
   p="$(new_fixture ev024)"
   expect_fail "EVAL-024" "placeholder [feature] não atravessa gate" \
@@ -789,16 +763,6 @@ eval_tier1() {
   expect_exit 0 "EVAL-028" "segunda task pode iniciar em incremento em execução" \
     bash -c "cd '$p' && '$guard' pre-implement ev028 task_02"
 
-  # EVAL-029 — Bash com redirecionamento para contrato não contorna o hook.
-  p="$(new_fixture ev029)"
-  cp "$root/governanca/sdd-guard.sh" "$p/sdd/governanca/sdd-guard.sh"
-  cp "$root/governanca/sdd-hook-claude.sh" "$p/sdd/governanca/sdd-hook-claude.sh"
-  chmod 0755 "$p/sdd/governanca/sdd-guard.sh" "$p/sdd/governanca/sdd-hook-claude.sh"
-  payload="$fixture_root/ev029-hook.json"
-  printf '%s\n' '{"tool_name":"Bash","tool_input":{"command":"printf x > sdd/contratos/demo/contrato.md"}}' >"$payload"
-  expect_exit 2 "EVAL-029" "hook bloqueia escrita Bash em contrato vivo" \
-    bash -c "cd '$p' && sdd/governanca/sdd-hook-claude.sh < '$payload'"
-
   # EVAL-030 — transição top-level não pode reescrever status de gates.
   p="$(new_fixture ev030)"
   rewrite_file "$p/sdd/incrementos/ev030/incremento.yaml" \
@@ -848,16 +812,6 @@ eval_tier1() {
   cp "$p/sdd/governanca/policies.yaml" "$trusted_policy"
   expect_exit 0 "EVAL-032b" "contrato autorizado no CI não exige token local" \
     bash -c "cd '$p' && SDD_TRUSTED_POLICIES='$trusted_policy' '$guard' protect-ci sdd/contratos/demo/contrato.md"
-
-  # EVAL-033 — wrappers/atribuições e concatenação de aspas não ocultam destino.
-  p="$(new_fixture ev033)"
-  cp "$root/governanca/sdd-guard.sh" "$p/sdd/governanca/sdd-guard.sh"
-  cp "$root/governanca/sdd-hook-claude.sh" "$p/sdd/governanca/sdd-hook-claude.sh"
-  chmod 0755 "$p/sdd/governanca/sdd-guard.sh" "$p/sdd/governanca/sdd-hook-claude.sh"
-  payload="$fixture_root/ev033-hook.json"
-  printf '%s\n' '{"tool_name":"Bash","tool_input":{"command":"env X=1 touch sdd/cont\"\"ratos/demo/contrato.md"}}' >"$payload"
-  expect_exit 2 "EVAL-033" "wrapper env não contorna proteção Bash" \
-    bash -c "cd '$p' && sdd/governanca/sdd-hook-claude.sh < '$payload'"
 
   # EVAL-034 — policy do HEAD não pode eleger o próprio checker permissivo.
   p="$(new_fixture ev034)"
@@ -920,16 +874,6 @@ eval_tier1() {
   else
     report FAIL "EVAL-038" "fluxo usa identificador task_NN consistente" "$flow_out"
   fi
-
-  # EVAL-039 — wrappers desconhecidos não podem ocultar mutadores/caminhos.
-  p="$(new_fixture ev039)"
-  cp "$root/governanca/sdd-guard.sh" "$p/sdd/governanca/sdd-guard.sh"
-  cp "$root/governanca/sdd-hook-claude.sh" "$p/sdd/governanca/sdd-hook-claude.sh"
-  chmod 0755 "$p/sdd/governanca/sdd-guard.sh" "$p/sdd/governanca/sdd-hook-claude.sh"
-  payload="$fixture_root/ev039-hook.json"
-  printf '%s\n' '{"tool_name":"Bash","tool_input":{"command":"nice cp README.md sdd/cont\"\"ratos/demo/contrato.md"}}' >"$payload"
-  expect_exit 2 "EVAL-039" "wrapper desconhecido não oculta escrita protegida" \
-    bash -c "cd '$p' && sdd/governanca/sdd-hook-claude.sh < '$payload'"
 
   # EVAL-040 — pull_request_target executa apenas controles extraídos da base.
   workflow="$root/.github/workflows/sdd-guard.yml"
@@ -1109,17 +1053,6 @@ SH
   expect_exit 2 "EVAL-050" "guard canônico é protegido por autoridade de governança" \
     bash -c "cd '$p' && SDD_FEATURE=ev050 '$guard' protect governanca/sdd-guard.sh"
 
-  # EVAL-051 — deploy reconhecido passa pelo gate técnico completo.
-  p="$(new_fixture ev051)"
-  cp "$root/governanca/sdd-guard.sh" "$p/sdd/governanca/sdd-guard.sh"
-  cp "$root/governanca/sdd-hook-claude.sh" "$p/sdd/governanca/sdd-hook-claude.sh"
-  chmod 0755 "$p/sdd/governanca/sdd-guard.sh" "$p/sdd/governanca/sdd-hook-claude.sh"
-  payload="$fixture_root/ev051-hook.json"
-  printf '%s\n' '{"tool_name":"Bash","tool_input":{"command":"kubectl apply -f deploy.yaml"}}' >"$payload"
-  expect_block_match "EVAL-051" "deploy conhecido exige pre-production completo" \
-    'status.*validado' \
-    bash -c "cd '$p' && sdd/governanca/sdd-hook-claude.sh < '$payload'"
-
   # EVAL-052 — o gate privilegiado consome checks externos, não scripts do PR.
   p="$(new_fixture ev052)"
   quality_marker="$fixture_root/ev052-quality-command-ran"
@@ -1146,24 +1079,6 @@ PY
     report FAIL "EVAL-052" "pre-merge-ci não executa quality_commands candidatas" \
       "rc=$merge_ci_rc marker=$([ -e "$quality_marker" ] && printf presente || printf ausente)"
   fi
-
-  # EVAL-053/053b/053c — opções longas e wrappers não ocultam mutações/deploy.
-  p="$(new_fixture ev053)"
-  cp "$root/governanca/sdd-guard.sh" "$p/sdd/governanca/sdd-guard.sh"
-  cp "$root/governanca/sdd-hook-claude.sh" "$p/sdd/governanca/sdd-hook-claude.sh"
-  chmod 0755 "$p/sdd/governanca/sdd-guard.sh" "$p/sdd/governanca/sdd-hook-claude.sh"
-  payload="$fixture_root/ev053-sed.json"
-  printf '%s\n' '{"tool_name":"Bash","tool_input":{"command":"sed --in-place s/a/b/ sdd/contratos/demo/contrato.md"}}' >"$payload"
-  expect_exit 2 "EVAL-053" "sed --in-place não escapa da proteção" \
-    bash -c "cd '$p' && sdd/governanca/sdd-hook-claude.sh < '$payload'"
-  payload="$fixture_root/ev053-nice.json"
-  printf '%s\n' '{"tool_name":"Bash","tool_input":{"command":"nice kubectl apply -f deploy.yaml"}}' >"$payload"
-  expect_block_match "EVAL-053b" "wrapper nice não oculta deploy" 'status.*validado' \
-    bash -c "cd '$p' && sdd/governanca/sdd-hook-claude.sh < '$payload'"
-  payload="$fixture_root/ev053-helm.json"
-  printf '%s\n' '{"tool_name":"Bash","tool_input":{"command":"helm --namespace prod upgrade app chart"}}' >"$payload"
-  expect_exit 2 "EVAL-053c" "opção global do Helm não oculta deploy" \
-    bash -c "cd '$p' && sdd/governanca/sdd-hook-claude.sh < '$payload'"
 
   # EVAL-054 — ambiente herdado não muda o comportamento do checker selado.
   p="$(new_fixture ev054)"
@@ -1193,24 +1108,6 @@ PY
   printf '\nContexto alterado depois da auditoria.\n' >>"$p/sdd/incrementos/ev055b/brief.md"
   expect_fail_match "EVAL-055b" "drift de brief exige reauditoria" 'worktree divergiu|reaudit' \
     bash -c "cd '$p' && '$guard' pre-implement ev055b task_02"
-
-  # EVAL-056/056b/056c — composição shell nunca oculta deploy conhecido.
-  p="$(new_fixture ev056)"
-  cp "$root/governanca/sdd-guard.sh" "$p/sdd/governanca/sdd-guard.sh"
-  cp "$root/governanca/sdd-hook-claude.sh" "$p/sdd/governanca/sdd-hook-claude.sh"
-  chmod 0755 "$p/sdd/governanca/sdd-guard.sh" "$p/sdd/governanca/sdd-hook-claude.sh"
-  payload="$fixture_root/ev056-kubectl.json"
-  printf '%s\n' '{"tool_name":"Bash","tool_input":{"command":"kubectl delete deployment api; true"}}' >"$payload"
-  expect_exit 2 "EVAL-056" "kubectl composto é bloqueado" \
-    bash -c "cd '$p' && sdd/governanca/sdd-hook-claude.sh < '$payload'"
-  payload="$fixture_root/ev056-helm.json"
-  printf '%s\n' '{"tool_name":"Bash","tool_input":{"command":"helm upgrade app chart && true"}}' >"$payload"
-  expect_exit 2 "EVAL-056b" "Helm composto é bloqueado" \
-    bash -c "cd '$p' && sdd/governanca/sdd-hook-claude.sh < '$payload'"
-  payload="$fixture_root/ev056-npm.json"
-  printf '%s\n' '{"tool_name":"Bash","tool_input":{"command":"npm run deploy | tee deploy.log"}}' >"$payload"
-  expect_exit 2 "EVAL-056c" "script de deploy composto é bloqueado" \
-    bash -c "cd '$p' && sdd/governanca/sdd-hook-claude.sh < '$payload'"
 
   # EVAL-057 — autonomia acima de assistido força gate de especificação.
   p="$(new_fixture ev057)"
@@ -1243,101 +1140,6 @@ PY
   rewrite_file "$p/sdd/governanca/policies.yaml" 's#^  check_sha256:.*#  check_sha256: ""#'
   expect_exit 2 "EVAL-059" "ancestral de wildcard protegido não pode ser removido" \
     bash -c "cd '$p' && SDD_FEATURE=ev059 '$guard' protect config"
-
-  # EVAL-060/060b — executável local e opção global não escondem mutação.
-  p="$(new_fixture ev060)"
-  cp "$root/governanca/sdd-guard.sh" "$p/sdd/governanca/sdd-guard.sh"
-  cp "$root/governanca/sdd-hook-claude.sh" "$p/sdd/governanca/sdd-hook-claude.sh"
-  chmod 0755 "$p/sdd/governanca/sdd-guard.sh" "$p/sdd/governanca/sdd-hook-claude.sh"
-  printf '#!/usr/bin/env bash\nprintf x >sdd/contratos/demo/contrato.md\n' >"$p/kubectl"
-  chmod 0755 "$p/kubectl"
-  payload="$fixture_root/ev060-local.json"
-  printf '%s\n' '{"tool_name":"Bash","tool_input":{"command":"./kubectl get pods"}}' >"$payload"
-  expect_exit 2 "EVAL-060" "executável local não se passa por kubectl" \
-    bash -c "cd '$p' && sdd/governanca/sdd-hook-claude.sh < '$payload'"
-  payload="$fixture_root/ev060-npm.json"
-  printf '%s\n' '{"tool_name":"Bash","tool_input":{"command":"npm --prefix sdd/contratos install"}}' >"$payload"
-  expect_exit 2 "EVAL-060b" "opção global de package manager não oculta instalação" \
-    bash -c "cd '$p' && sdd/governanca/sdd-hook-claude.sh < '$payload'"
-
-  # EVAL-061 / REVIEW-027 — composição, subshell e command substitution são
-  # recusados antes de qualquer gate ou execução do comando candidato.
-  p="$(new_fixture ev061)"
-  cp "$root/governanca/sdd-guard.sh" "$p/sdd/governanca/sdd-guard.sh"
-  cp "$root/governanca/sdd-hook-claude.sh" "$p/sdd/governanca/sdd-hook-claude.sh"
-  chmod 0755 "$p/sdd/governanca/sdd-guard.sh" "$p/sdd/governanca/sdd-hook-claude.sh"
-  review_ok=1
-  for hook_command in \
-    '(touch review027-marker)' \
-    'printf %s "$(touch review027-marker)"' \
-    'printf %s `touch review027-marker`'; do
-    payload="$fixture_root/ev061-$RANDOM.json"
-    write_hook_payload "$payload" "$hook_command"
-    hook_rc=0
-    (cd "$p" && sdd/governanca/sdd-hook-claude.sh <"$payload" >/dev/null 2>&1) || hook_rc=$?
-    [ "$hook_rc" -eq 2 ] || review_ok=0
-  done
-  if [ "$review_ok" -eq 1 ] && [ ! -e "$p/review027-marker" ]; then
-    report PASS "EVAL-061" "REVIEW-027 bloqueia shell composto antes da execução"
-  else
-    report FAIL "EVAL-061" "REVIEW-027 bloqueia shell composto antes da execução" \
-      "rc inesperado ou marcador de mutação criado"
-  fi
-
-  # EVAL-062 / REVIEW-028 — ambiente sensível e carregamento de código shell
-  # não podem preceder a decisão do hook.
-  p="$(new_fixture ev062)"
-  cp "$root/governanca/sdd-guard.sh" "$p/sdd/governanca/sdd-guard.sh"
-  cp "$root/governanca/sdd-hook-claude.sh" "$p/sdd/governanca/sdd-hook-claude.sh"
-  chmod 0755 "$p/sdd/governanca/sdd-guard.sh" "$p/sdd/governanca/sdd-hook-claude.sh"
-  printf ': >review028-marker\n' >"$p/evil-env.sh"
-  printf ': >review028-python-marker\n' >"$p/json.py"
-  hostile_path="$fixture_root/ev062-hostile-bin"
-  mkdir -p "$hostile_path"
-  printf '#!/bin/sh\n: >"%s"\nexit 99\n' "$p/review028-path-marker" >"$hostile_path/bash"
-  chmod 0755 "$hostile_path/bash"
-  review_ok=1
-  for hook_command in \
-    'BASH_ENV=./evil-env.sh true' \
-    'env BASH_ENV=./evil-env.sh true' \
-    'source ./evil-env.sh' \
-    '. ./evil-env.sh'; do
-    payload="$fixture_root/ev062-$RANDOM.json"
-    write_hook_payload "$payload" "$hook_command"
-    hook_rc=0
-    (cd "$p" && sdd/governanca/sdd-hook-claude.sh <"$payload" >/dev/null 2>&1) || hook_rc=$?
-    [ "$hook_rc" -eq 2 ] || review_ok=0
-  done
-  payload="$fixture_root/ev062-inherited.json"
-  write_hook_payload "$payload" 'true'
-  hook_rc=0
-  (cd "$p" && BASH_ENV=./evil-env.sh PATH="$hostile_path:/usr/bin:/bin" \
-    sdd/governanca/sdd-hook-claude.sh <"$payload" >/dev/null 2>&1) || hook_rc=$?
-  [ "$hook_rc" -eq 0 ] || review_ok=0
-  payload="$fixture_root/ev062-git-external-diff.json"
-  write_hook_payload "$payload" 'GIT_EXTERNAL_DIFF=./evil-env.sh git diff'
-  hook_rc=0
-  (cd "$p" && sdd/governanca/sdd-hook-claude.sh <"$payload" >/dev/null 2>&1) || hook_rc=$?
-  [ "$hook_rc" -eq 2 ] || review_ok=0
-  for hook_command in \
-    'git -c diff.external=./evil-env.sh diff HEAD^ HEAD' \
-    'git --config-env=diff.external=SDD_FEATURE diff HEAD^ HEAD' \
-    'git --exec-path=./git-helpers status' \
-    'git diff --ext-diff HEAD^ HEAD' \
-    'git diff --output=review028-marker HEAD^ HEAD'; do
-    payload="$fixture_root/ev062-git-option-$RANDOM.json"
-    write_hook_payload "$payload" "$hook_command"
-    hook_rc=0
-    (cd "$p" && sdd/governanca/sdd-hook-claude.sh <"$payload" >/dev/null 2>&1) || hook_rc=$?
-    [ "$hook_rc" -eq 2 ] || review_ok=0
-  done
-  if [ "$review_ok" -eq 1 ] && [ ! -e "$p/review028-marker" ] \
-     && [ ! -e "$p/review028-python-marker" ] && [ ! -e "$p/review028-path-marker" ]; then
-    report PASS "EVAL-062" "REVIEW-028 bloqueia ambiente e source pré-gate"
-  else
-    report FAIL "EVAL-062" "REVIEW-028 bloqueia ambiente e source pré-gate" \
-      "rc inesperado ou código injetado foi executado"
-  fi
 
   # EVAL-063 / REVIEW-029 — PATH herdado não escolhe helpers da cadeia que
   # sela e executa o authority checker.
@@ -1431,7 +1233,7 @@ PY
 
   # EVAL-068 / REVIEW-034 — todos os entrypoints que usam mapfile declaram 4.4.
   review_ok=1
-  for bash_contract in governanca/sdd-hook-claude.sh governanca/sdd-guard.sh evals/run-evals.sh; do
+  for bash_contract in governanca/sdd-guard.sh evals/run-evals.sh; do
     grep -Fq '4.4' "$root/$bash_contract" || review_ok=0
   done
   if [ "$review_ok" -eq 1 ]; then
@@ -1514,29 +1316,6 @@ PY
     report FAIL "EVAL-071" "REVIEW-037 exige workflow no source bundle" "workflow não obrigatório"
   fi
 
-  # EVAL-072 — recipes e scripts locais não atravessam o hook como se fossem
-  # comandos de leitura; o candidato só seria executado após exit 0.
-  p="$(new_fixture ev072)"
-  cp "$root/governanca/sdd-guard.sh" "$p/sdd/governanca/sdd-guard.sh"
-  cp "$root/governanca/sdd-hook-claude.sh" "$p/sdd/governanca/sdd-hook-claude.sh"
-  chmod 0755 "$p/sdd/governanca/sdd-guard.sh" "$p/sdd/governanca/sdd-hook-claude.sh"
-  printf 'test:\n\t@touch review072-marker\n' >"$p/Makefile"
-  payload="$fixture_root/ev072-make.json"
-  write_hook_payload "$payload" 'make test'
-  hook_rc=0
-  (cd "$p" && sdd/governanca/sdd-hook-claude.sh <"$payload" >/dev/null 2>&1) || hook_rc=$?
-  if [ "$hook_rc" -eq 0 ]; then (cd "$p" && make test >/dev/null 2>&1); fi
-  package_rc=0
-  payload="$fixture_root/ev072-npm.json"
-  write_hook_payload "$payload" 'npm test'
-  (cd "$p" && sdd/governanca/sdd-hook-claude.sh <"$payload" >/dev/null 2>&1) || package_rc=$?
-  if [ "$hook_rc" -eq 2 ] && [ "$package_rc" -eq 2 ] && [ ! -e "$p/review072-marker" ]; then
-    report PASS "EVAL-072" "recipes e scripts locais são bloqueados fail-closed"
-  else
-    report FAIL "EVAL-072" "recipes e scripts locais são bloqueados fail-closed" \
-      "make_rc=$hook_rc package_rc=$package_rc"
-  fi
-
   # EVAL-073 — o executor recebe somente o caso selecionado e nunca os IDs
   # usados exclusivamente pelo oracle independente.
   sanitized_catalog="$fixture_root/ev073-executor-catalog.yaml"
@@ -1561,11 +1340,8 @@ eval_tier1_filtered() {
     EVAL-041b) marker=EVAL-041 ;;
     EVAL-042b|EVAL-042c|EVAL-042d|EVAL-042e) marker=EVAL-042 ;;
     EVAL-045b) marker=EVAL-045 ;;
-    EVAL-053b|EVAL-053c) marker=EVAL-053 ;;
     EVAL-055b) marker=EVAL-055 ;;
-    EVAL-056b|EVAL-056c) marker=EVAL-056 ;;
     EVAL-058b) marker=EVAL-058 ;;
-    EVAL-060b) marker=EVAL-060 ;;
   esac
   code="$(awk -v marker="$marker" '
     /^  # EVAL-/ {

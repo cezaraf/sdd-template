@@ -9,7 +9,7 @@ cada incremento, exceto quando uma entrega revelar lacuna.
 
 - `bootstrap`: deriva governança do repositório.
 - `atualizacao`: usa um incremento como evidência para corrigir rules, skills,
-  policies, hooks ou evals.
+  policies ou evals.
 
 ## Entradas
 
@@ -30,7 +30,6 @@ AGENTS.md
 CLAUDE.md
 .claude/rules/
 .claude/skills/
-.claude/settings.json                        (hooks PreToolUse do guard)
 .mcp.json
 sdd/governanca/policies.yaml
 sdd/governanca/sdd-guard.sh                  (gates, protect, scan-secrets)
@@ -42,7 +41,7 @@ sdd/evals/run-evals.sh + sdd/evals/cases/
 .github/workflows/sdd-watch.yml              (quando houver métrica monitorável)
 ```
 
-O instalador já entrega guard, hook do Claude Code, driver de fluxo, métricas,
+O instalador já entrega guard, driver de fluxo, métricas,
 runner de evals e exemplos do detector. Este passo adapta o que é específico do
 projeto: comandos reais em `policies.yaml`, caminhos protegidos adicionais,
 métricas de `watch.yaml` e evals novas.
@@ -52,11 +51,13 @@ métricas de `watch.yaml` e evals novas.
 Use o mecanismo correto:
 
 - **documentação/rule/skill** para orientação contextual;
-- **policy/hook/CI** para bloqueio determinístico;
+- **policy/guard/CI** para validação determinística nos gates e no pipeline;
 - **eval** para regressão do harness;
 - **gate humano** para julgamento e autoridade.
 
-Não tente resolver segurança crítica apenas com prompt.
+Não tente resolver segurança crítica apenas com prompt. A remoção dos hooks
+locais aumenta a importância dos gates explícitos e do CI: nenhuma validação
+local automática de cada edição é prometida.
 
 ## Policies mínimas
 
@@ -122,7 +123,8 @@ Crie casos que provem que o agente:
 - Não prometa gate inexistente.
 - Não sobrescreva governança específica do projeto sem preservar decisões.
 - Faça `policies.yaml` refletir comandos reais.
-- Hooks devem falhar de forma legível e indicar como desbloquear.
+- Não instale hooks de interceptação de escrita ou execução do agente;
+  verifique gates explicitamente e em CI.
 - Evals precisam de entrada, expectativa e evidência de aprovação.
 
 ## Checklist

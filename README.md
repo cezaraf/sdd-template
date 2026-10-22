@@ -23,7 +23,7 @@ Specification-Driven Development, ou desenvolvimento orientado por
 especificação, é uma abordagem em que requisitos observáveis, cenários BDD,
 decisões técnicas e critérios de aceite controlam a implementação. No SDD
 Template, a especificação não é documentação passiva: ela alimenta gates,
-hooks, evals e políticas executáveis.
+guard, evals e políticas executáveis.
 
 Isso reduz duas falhas comuns no desenvolvimento de software com IA:
 
@@ -39,7 +39,7 @@ registra evidência auditável.
 | --- | --- |
 | Agentes alteram código sem contexto suficiente | PRD, TechSpec, plano e tasks aprovadas antes da implementação |
 | Review e QA dependem da mesma sessão | Auditor, revisor e QA executam como agentes isolados |
-| Prompts não garantem segurança | Hooks e policies aplicam gates determinísticos e fail-closed |
+| Prompts não garantem segurança | Guard explícito e CI verificam os gates, sem interceptar cada edição |
 | Requisitos e código divergem | Contratos vivos registram o comportamento realmente consolidado |
 | CI verde não prova prontidão operacional | Merge, deploy, health check e rollback pertencem ao mesmo fluxo |
 | Erros recorrentes não melhoram o processo | Incidentes e retrabalho viram evals, rules, skills ou runbooks |
@@ -61,10 +61,25 @@ registra evidência auditável.
 - separação entre **parecer do agente** e **gate humano**;
 - estado macro (`status`) e fase operacional (`fase`);
 - PR, merge, deploy, verificação e rollback dentro do ciclo;
-- policies e hooks para enforcement determinístico;
+- policies, guard explícito e CI para validação determinística;
+- Outside-In TDD com RED → GREEN → REFACTOR e evidência por task;
+- mapa arquitetural vivo por incremento e roteiro de diagnóstico;
 - evals Tier 1 e Tier 2 do próprio harness;
 - promoção de incidentes e retrabalho para rules, skills, runbooks ou evals;
 - contrato vivo consolidado apenas no alvo declarado: local, branch ou produção.
+
+## Controle técnico sem microgerenciar o código
+
+O fluxo combina especificação, **Outside-In TDD** e revisão arquitetural.
+Antes de implementar, o agente apresenta os módulos/pastas e arquivos previstos,
+o caminho principal de execução, o que pretende reutilizar e por que uma nova
+abstração seria necessária. Você valida decisões e comportamentos importantes;
+o agente executa RED → GREEN → REFACTOR sem solicitar aprovação para cada teste.
+
+Após cada task, as evidências devem responder: **o que passou a funcionar,
+onde está implementado, por onde o fluxo passa e onde começar a depurar se
+falhar?** O mapa real e o diff são comparados com o plano. Isto não substitui
+a leitura do código, mas mantém uma visão operacional útil do sistema.
 
 ## Como o SDD Template funciona
 
@@ -202,7 +217,7 @@ em cada incremento.
 | `02` | Criar TechSpec e ADRs |
 | `03` | Criar plano, tasks, BDD e impactos contratuais |
 | `04` | Auditar especificação e plano em contexto isolado |
-| `05` | Instalar rules, skills, policies, hooks e evals |
+| `05` | Instalar rules, skills, policies e evals |
 | `06` | Executar task dentro do plano aprovado |
 | `07` | Revisar implementação em contexto isolado |
 | `08` | Executar QA como consumidor |
@@ -241,7 +256,6 @@ sdd/
     sdd-guard.sh                # gates + protect + scan-secrets
     sdd-fluxo.sh                # driver do loop (próximo passo)
     sdd-metricas.sh             # indicadores leading/lagging
-    sdd-hook-claude.sh          # hook PreToolUse
     sdd-watch.sh.example        # detector operacional (copiar e ajustar)
     watch.yaml.example
   evals/
@@ -251,9 +265,6 @@ sdd/
   prompts/
     _comum.md
     00-*.md ... 14-*.md
-
-.claude/
-  settings.json                 # hooks do guard (gerado pelo instalador)
 
 .github/workflows/
   sdd-guard.yml                 # evals + segredos + caminhos protegidos no PR
@@ -301,7 +312,7 @@ curl -fsSL .../install.sh | bash -s -- --uninstall
 ```
 
 Requisito de execução: Bash >= 4.4 (o Bash 3 padrão de versões antigas do
-macOS não atende ao guard e ao hook fail-closed).
+macOS não atende ao guard).
 
 O instalador:
 
@@ -310,7 +321,7 @@ O instalador:
 - registra auditor, revisor e QA como agents isolados;
 - cria estrutura SDD e Compozy;
 - preserva `policies.yaml` e exemplos criados pelo projeto; o núcleo gerenciado
-  (guard, hook, fluxo, métricas, evals e workflow) é atualizado para a versão
+  (guard, fluxo, métricas, evals e workflow) é atualizado para a versão
   canônica, com backup prévio de divergências locais;
 - instala o Compozy quando possível.
 
@@ -382,7 +393,7 @@ mesmo guard que será usado no `--run` já a considera válida.
 
 ## Governança determinística
 
-Prompts orientam; hooks e CI bloqueiam.
+Prompts orientam; comandos explícitos do guard e CI verificam gates e diffs.
 
 ```bash
 sdd/governanca/sdd-guard.sh validate-policy
@@ -393,15 +404,17 @@ sdd/governanca/sdd-guard.sh pre-validate [feature]
 sdd/governanca/sdd-guard.sh pre-merge [feature]
 sdd/governanca/sdd-guard.sh pre-production [feature]
 sdd/governanca/sdd-guard.sh pre-consolidate [feature]
-sdd/governanca/sdd-guard.sh protect <caminho>       # usado pelo hook
+sdd/governanca/sdd-guard.sh protect <caminho>       # verificação explícita de path
 sdd/governanca/sdd-guard.sh protect-ci <caminho>    # autoridade externa no CI
 sdd/governanca/sdd-guard.sh scan-secrets <arquivos> # usado pelo CI
 ```
 
-O instalador registra `sdd-hook-claude.sh` como hook `PreToolUse` no
-`.claude/settings.json`. `Write`, `Edit`, `MultiEdit` e `NotebookEdit` passam
-por proteção de path e scan do conteúdo; Bash mutante é analisado e falha
-fechado quando o destino não pode ser determinado com segurança.
+O instalador **não instala hooks `PreToolUse`**: o agente pode editar e executar
+comandos sem interceptação em cada operação. Em projetos atualizados, remove
+somente as entradas SDD antigas de `.claude/settings.json`, preservando hooks
+de terceiros. Os gates explícitos e o CI continuam verificando os requisitos
+do processo; sem hook, modificações locais entre gates não são automaticamente
+bloqueadas. Por isso, revise o diff e mantenha branch protection/CI para merge.
 
 O YAML registra aprovações, mas não é fonte de autoridade. Configure em
 `sdd/governanca/policies.yaml` um `authority.check_command` absoluto, fora do
@@ -476,7 +489,7 @@ Os casos em `sdd/evals/` verificam invariantes do processo, como:
 - bugfix criar regressão;
 - produção exigir gate humano.
 
-Ao alterar prompts, rules, skills, agents, model routing ou hooks, rode as evals.
+Ao alterar prompts, rules, skills, agents ou model routing, rode as evals.
 O tier 1 é validado por mutação: quando uma checagem do guard é desativada de
 propósito, a suíte fica vermelha.
 
@@ -531,9 +544,9 @@ são preservados ou migrados explicitamente.
 ### Como o SDD Template torna agentes de IA mais seguros?
 
 O produto combina menor privilégio, paths protegidos, verificação de segredos,
-gates humanos, authority checker externo, hooks fail-closed e workflows de CI.
-Prompts orientam o agente; controles determinísticos decidem o que ele pode
-alterar, publicar ou levar à produção.
+gates humanos, authority checker externo, verificações explícitas e workflows de CI.
+Prompts orientam o agente. Guard e CI validam o diff e a autoridade antes dos
+gates de entrega, publicação ou produção; não há bloqueio de cada edição local.
 
 ### O framework automatiza PR, merge e deploy?
 

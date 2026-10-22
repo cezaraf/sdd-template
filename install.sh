@@ -194,7 +194,7 @@ step_desc() {
     02-criar-techspec)           echo "SDD 02 — TechSpec, contratos, riscos, testes e ADRs" ;;
     03-criar-tasks)              echo "SDD 03 — Plano persistido, tasks BDD e impactos contratuais" ;;
     04-auditar-especificacao)    echo "SDD 04 — Auditoria independente da especificação e do plano" ;;
-    05-instalar-rules-skills)    echo "SDD 05 — Governança: rules, skills, policies, hooks e evals" ;;
+    05-instalar-rules-skills)    echo "SDD 05 — Governança: rules, skills, policies e evals" ;;
     06-executar-task)            echo "SDD 06 — Execução de task dentro do plano aprovado" ;;
     07-revisar-implementacao)    echo "SDD 07 — Review independente de implementação e evidências" ;;
     08-executar-qa)              echo "SDD 08 — QA como consumidor, com PASSOU/FALHOU/NAO_VERIFICADO" ;;
@@ -582,7 +582,6 @@ src_is_complete() {
     governanca/sdd-guard.sh \
     governanca/sdd-fluxo.sh \
     governanca/sdd-metricas.sh \
-    governanca/sdd-hook-claude.sh \
     governanca/policies.yaml.example \
     evals/run-evals.sh \
     evals/cases/core-contracts.yaml \
@@ -633,6 +632,30 @@ render_managed_file() {
   cp "$source" "$target"
 }
 
+retire_legacy_hook_file() {
+  # Remove apenas a versão antiga gerenciada; não apague arquivos customizados.
+  local rel="sdd/governanca/sdd-hook-claude.sh"
+  local target="$PROJECT_DIR/$rel"
+  local manifest="$PROJECT_DIR/sdd/.sdd-template/manifest-v1.tsv"
+  local previous current
+  assert_safe_destination "$target"
+  [ -e "$target" ] || return 0
+  [ -f "$target" ] && [ ! -L "$target" ] \
+    || incomplete "hook legado não é arquivo regular: $rel"
+  previous="$(manifest_digest "$manifest" "$rel" 2>/dev/null || true)"
+  current="$(file_digest "$target")"
+  if [ -n "$previous" ] && [ "$previous" = "$current" ]; then
+    if [ "$DRY_RUN" -eq 1 ]; then
+      printf '[dry-run] removeria hook legado gerenciado em %s\n' "$rel"
+    else
+      rm -f "$target"
+      ok "hook legado gerenciado removido: $rel"
+    fi
+  else
+    warn "hook legado customizado/não gerenciado preservado, sem ativação: $rel"
+  fi
+}
+
 install_managed_bundle() {
   local manifest="$PROJECT_DIR/sdd/.sdd-template/manifest-v1.tsv"
   local backup_root="$PROJECT_DIR/sdd/.sdd-template/backups"
@@ -646,7 +669,6 @@ install_managed_bundle() {
     sdd/governanca/sdd-guard.sh
     sdd/governanca/sdd-fluxo.sh
     sdd/governanca/sdd-metricas.sh
-    sdd/governanca/sdd-hook-claude.sh
     sdd/evals/run-evals.sh
     sdd/evals/cases/core-contracts.yaml
     sdd/governanca/sdd-template.env
@@ -655,12 +677,11 @@ install_managed_bundle() {
     "$SRC_DIR/governanca/sdd-guard.sh"
     "$SRC_DIR/governanca/sdd-fluxo.sh"
     "$SRC_DIR/governanca/sdd-metricas.sh"
-    "$SRC_DIR/governanca/sdd-hook-claude.sh"
     "$SRC_DIR/evals/run-evals.sh"
     "$SRC_DIR/evals/cases/core-contracts.yaml"
     @prefix
   )
-  modes=(0755 0755 0755 0755 0755 0644 0644)
+  modes=(0755 0755 0755 0755 0644 0644)
 
   rels+=(.github/workflows/sdd-guard.yml)
   sources+=("$SRC_DIR/.github/workflows/sdd-guard.yml")
@@ -774,245 +795,6 @@ persist_global_prefix() {
   else
     mv "$tmp" "$target"
   fi
-}
-
-merge_claude_hooks_json() {
-  local source="$1" output="$2" hook_command="$3"
-  if command -v python3 >/dev/null 2>&1; then
-    python3 - "$source" "$output" "$hook_command" <<'PY'
-import json
-import sys
-
-source, output, hook_command = sys.argv[1:]
-
-def invalid(message):
-    print("settings.json inválido para merge seguro: " + message, file=sys.stderr)
-    raise SystemExit(2)
-
-def unique_object(pairs):
-    result = {}
-    for key, value in pairs:
-        if key in result:
-            raise ValueError("chave JSON duplicada: " + key)
-        result[key] = value
-    return result
-
-def reject_constant(value):
-    raise ValueError("constante JSON inválida: " + value)
-
-try:
-    with open(source, encoding="utf-8") as stream:
-        data = json.load(
-            stream,
-            object_pairs_hook=unique_object,
-            parse_constant=reject_constant,
-        )
-except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as exc:
-    invalid(str(exc))
-
-if not isinstance(data, dict):
-    invalid("a raiz deve ser um objeto")
-if "hooks" in data and not isinstance(data["hooks"], dict):
-    invalid("hooks deve ser um objeto")
-
-changed = False
-if "hooks" not in data:
-    data["hooks"] = {}
-    changed = True
-hooks = data["hooks"]
-if "PreToolUse" in hooks and not isinstance(hooks["PreToolUse"], list):
-    invalid("hooks.PreToolUse deve ser uma lista")
-if "PreToolUse" not in hooks:
-    hooks["PreToolUse"] = []
-    changed = True
-pre = hooks["PreToolUse"]
-
-for index, entry in enumerate(pre):
-    if not isinstance(entry, dict):
-        invalid("hooks.PreToolUse[%d] deve ser um objeto" % index)
-    if "hooks" in entry and not isinstance(entry["hooks"], list):
-        invalid("hooks.PreToolUse[%d].hooks deve ser uma lista" % index)
-    for hook_index, hook in enumerate(entry.get("hooks", [])):
-        if not isinstance(hook, dict):
-            invalid("hooks.PreToolUse[%d].hooks[%d] deve ser um objeto" % (index, hook_index))
-
-for matcher in ("Edit|Write|MultiEdit|NotebookEdit", "Bash"):
-    matching = [entry for entry in pre if entry.get("matcher") == matcher]
-    present = any(
-        hook.get("type") == "command" and hook.get("command") == hook_command
-        for entry in matching
-        for hook in entry.get("hooks", [])
-    )
-    if present:
-        continue
-    if matching:
-        target = matching[0]
-        if "hooks" not in target:
-            target["hooks"] = []
-            changed = True
-    else:
-        target = {"matcher": matcher, "hooks": []}
-        pre.append(target)
-        changed = True
-    target["hooks"].append({"type": "command", "command": hook_command})
-    changed = True
-
-for matcher in ("Edit|Write|MultiEdit|NotebookEdit", "Bash"):
-    if not any(
-        entry.get("matcher") == matcher
-        and any(
-            hook.get("type") == "command" and hook.get("command") == hook_command
-            for hook in entry.get("hooks", [])
-        )
-        for entry in pre
-    ):
-        invalid("hook obrigatório não foi materializado para " + matcher)
-
-if not changed:
-    raise SystemExit(10)
-with open(output, "w", encoding="utf-8") as stream:
-    json.dump(data, stream, ensure_ascii=False, indent=2)
-    stream.write("\n")
-with open(output, encoding="utf-8") as stream:
-    json.load(stream)
-PY
-    return $?
-  fi
-
-  if command -v node >/dev/null 2>&1; then
-    node - "$source" "$output" "$hook_command" <<'JS'
-const fs = require("fs");
-const [source, output, hookCommand] = process.argv.slice(2);
-
-function invalid(message) {
-  console.error(`settings.json inválido para merge seguro: ${message}`);
-  process.exit(2);
-}
-
-let data;
-const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
-try {
-  data = JSON.parse(fs.readFileSync(source, "utf8"));
-} catch (error) {
-  invalid(error.message);
-}
-if (data === null || Array.isArray(data) || typeof data !== "object") {
-  invalid("a raiz deve ser um objeto");
-}
-if (hasOwn(data, "hooks") && (data.hooks === null || Array.isArray(data.hooks) || typeof data.hooks !== "object")) {
-  invalid("hooks deve ser um objeto");
-}
-
-let changed = false;
-if (!hasOwn(data, "hooks")) {
-  data.hooks = {};
-  changed = true;
-}
-if (hasOwn(data.hooks, "PreToolUse") && !Array.isArray(data.hooks.PreToolUse)) {
-  invalid("hooks.PreToolUse deve ser uma lista");
-}
-if (!hasOwn(data.hooks, "PreToolUse")) {
-  data.hooks.PreToolUse = [];
-  changed = true;
-}
-const pre = data.hooks.PreToolUse;
-pre.forEach((entry, index) => {
-  if (entry === null || Array.isArray(entry) || typeof entry !== "object") {
-    invalid(`hooks.PreToolUse[${index}] deve ser um objeto`);
-  }
-  if (hasOwn(entry, "hooks") && !Array.isArray(entry.hooks)) {
-    invalid(`hooks.PreToolUse[${index}].hooks deve ser uma lista`);
-  }
-  (entry.hooks || []).forEach((hook, hookIndex) => {
-    if (hook === null || Array.isArray(hook) || typeof hook !== "object") {
-      invalid(`hooks.PreToolUse[${index}].hooks[${hookIndex}] deve ser um objeto`);
-    }
-  });
-});
-
-for (const matcher of ["Edit|Write|MultiEdit|NotebookEdit", "Bash"]) {
-  const matching = pre.filter((entry) => entry.matcher === matcher);
-  const present = matching.some((entry) =>
-    (entry.hooks || []).some((hook) => hook.type === "command" && hook.command === hookCommand));
-  if (present) continue;
-  let target;
-  if (matching.length) {
-    target = matching[0];
-    if (!hasOwn(target, "hooks")) {
-      target.hooks = [];
-      changed = true;
-    }
-  } else {
-    target = {matcher, hooks: []};
-    pre.push(target);
-    changed = true;
-  }
-  target.hooks.push({type: "command", command: hookCommand});
-  changed = true;
-}
-
-for (const matcher of ["Edit|Write|MultiEdit|NotebookEdit", "Bash"]) {
-  const installed = pre.some((entry) =>
-    entry.matcher === matcher
-      && (entry.hooks || []).some((hook) => hook.type === "command" && hook.command === hookCommand));
-  if (!installed) invalid(`hook obrigatório não foi materializado para ${matcher}`);
-}
-
-if (!changed) process.exit(10);
-fs.writeFileSync(output, JSON.stringify(data, null, 2) + "\n", "utf8");
-JSON.parse(fs.readFileSync(output, "utf8"));
-JS
-    return $?
-  fi
-
-  return 127
-}
-
-install_claude_hooks() {
-  local settings="$1" hook_command="sdd/governanca/sdd-hook-claude.sh"
-  local source tmp rc=0
-  assert_safe_destination "$settings"
-  if [ "$DRY_RUN" -eq 1 ]; then
-    printf '\033[2m[dry-run]\033[0m faria merge estrutural de hooks em %s\n' "$settings"
-    return 0
-  fi
-  # O hook canônico usa python3 para parsing fail-closed do payload; instalar
-  # apenas o settings sem essa dependência deixaria o enforcement inutilizável.
-  command -v python3 >/dev/null 2>&1 \
-    || incomplete "hooks do Claude não instalados: python3 é obrigatório para o enforcement"
-  if [ -e "$settings" ] && [ ! -f "$settings" ]; then
-    incomplete ".claude/settings.json não é um arquivo regular; enforcement não instalado"
-  fi
-
-  mkdir -p "$(dirname "$settings")"
-  source="$settings"
-  if [ ! -f "$source" ]; then
-    source="$WORK_DIR/empty-claude-settings.json"
-    printf '{}\n' >"$source"
-  fi
-  tmp="$(mktemp "${settings}.sdd-new.XXXXXX")"
-  PENDING_TEMPS+=("$tmp")
-  [ ! -f "$settings" ] || cp -p "$settings" "$tmp"
-
-  merge_claude_hooks_json "$source" "$tmp" "$hook_command" || rc=$?
-  case "$rc" in
-    0)
-      mv "$tmp" "$settings"
-      ok "hooks do Claude Code mesclados atomicamente em .claude/settings.json"
-      ;;
-    10)
-      rm -f "$tmp"
-      ok "preservado: hooks SDD já instalados estruturalmente em .claude/settings.json"
-      ;;
-    127)
-      rm -f "$tmp"
-      incomplete "hooks do Claude não instalados: processador JSON indisponível"
-      ;;
-    *)
-      rm -f "$tmp"
-      incomplete ".claude/settings.json não pôde ser validado/mesclado; enforcement não instalado"
-      ;;
-  esac
 }
 
 validate_existing_project_policy() {
@@ -1228,8 +1010,14 @@ if [ "$SCOPE" = "project" ]; then
     || copy_if_absent "$SRC_DIR/governanca/policies.yaml.example" \
       "$PROJECT_DIR/sdd/governanca/policies.yaml"
 
+  # Desativar primeiro as entradas PreToolUse SDD. Mesmo se uma etapa
+  # posterior falhar, não podem sobrar hooks apontando para um executável
+  # removido. Hooks de terceiros são preservados.
+  uninstall_claude_hooks "$PROJECT_DIR/.claude/settings.json"
+
   # Código do harness é promovido como um único bundle versionado. Arquivos
   # divergentes do último manifest são preservados antes da atualização.
+  retire_legacy_hook_file
   install_managed_bundle
 
   # Detector operacional: exemplos, porque dependem de métricas do projeto.
@@ -1242,12 +1030,6 @@ if [ "$SCOPE" = "project" ]; then
   [ ! -f "$SRC_DIR/evals/README.md" ] \
     || copy_if_absent "$SRC_DIR/evals/README.md" \
       "$PROJECT_DIR/sdd/evals/README.md"
-
-  # Hooks determinísticos do Claude Code (enforcement enquanto o agente age).
-  if has_tool claude; then
-    claude_settings="$PROJECT_DIR/.claude/settings.json"
-    install_claude_hooks "$claude_settings"
-  fi
 
   agents_file="$PROJECT_DIR/AGENTS.md"
   assert_safe_destination "$agents_file"

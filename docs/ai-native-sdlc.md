@@ -34,7 +34,7 @@ Responsável por:
 
 - máquina de estados;
 - autoridade por risco/autonomia;
-- hooks e CI;
+- gates explícitos e CI;
 - branches/worktrees;
 - PR, merge e deploy;
 - health checks e rollback;
@@ -95,6 +95,21 @@ verificar automaticamente:
 
 O plano é revisável, não imutável. Toda revisão registra motivo e impacto.
 
+## Assimilação arquitetural e TDD
+
+O fluxo gera evidência técnica para o responsável compreender o sistema, não
+apenas para provar que os testes passaram. Antes de codificar, o agente propõe
+o mapa de módulos, diretórios, responsabilidades, arquivos e caminho principal
+de execução. Mudanças materiais são discutidas, inclusive alternativas mais
+simples. Durante a task, executa Outside-In TDD: RED documentado, GREEN mínimo
+e REFACTOR com os testes verdes. Ao finalizar, compara a estrutura prevista
+com os arquivos reais e explica onde investigar falhas típicas.
+
+A ausência de hooks locais é deliberada: não existe interceptação automática
+de cada chamada de ferramenta. O enforcement acontece nos comandos do guard,
+na revisão do diff e em CI. Isso reduz atrito, mas exige disciplina para não
+ignorar gates e branch protection.
+
 ## Enforcement
 
 ### Consultivo
@@ -110,8 +125,7 @@ O plano é revisável, não imutável. Toda revisão registra motivo e impacto.
 
 - `sdd/governanca/policies.yaml` (caminhos protegidos, segredos, autoridade);
 - `sdd/governanca/sdd-guard.sh` (gates, `protect`, `protect-ci`, segredos);
-- `sdd/governanca/sdd-hook-claude.sh` como hook `PreToolUse`, instalado
-  automaticamente em `.claude/settings.json`;
+- comandos explícitos do guard nas transições (sem hooks `PreToolUse` locais);
 - `.github/workflows/sdd-guard.yml` (guard/evals extraídos da base sobre o diff
   candidato, sem executar scripts propostos pelo PR privilegiado);
 - branch protection;
@@ -125,9 +139,10 @@ não libera a escrita. No CI, `protect-ci` troca o token local por uma decisão
 externa `contract_change`.
 
 O CI resolve policy, guard e evals a partir do commit base, materializados fora
-do worktree. Assim o PR não escolhe o próprio checker nem executa controles
-candidatos sob `pull_request_target`; mudanças no trust root exigem
-`governance_change` externo.
+do worktree. Assim o PR não executa controles candidatos sob
+`pull_request_target`. Alterações em arquivos do próprio template não exigem
+mais a autorização externa `governance_change` na pipeline. As verificações
+de testes, segredos, controles obrigatórios e contratos vivos permanecem.
 
 Gates humanos também exigem prova externa. `authority.check_command` aponta
 para um executável protegido fora do worktree; o YAML é somente registro. Sem
@@ -213,7 +228,7 @@ produzindo decisões seguras quando mudam:
 - context window;
 - skills;
 - agents;
-- hooks;
+- guard e CI;
 - policies;
 - tool permissions.
 
@@ -237,7 +252,7 @@ Comece por:
 
 1. plano persistido;
 2. gate duplo;
-3. guard de contrato vivo/auditoria + hook no harness;
+3. guard de contrato vivo/auditoria explícito + verificação no CI;
 4. evals tier 1 no CI;
 5. PR/merge dentro do fluxo;
 6. alvo `branch`;
@@ -255,3 +270,4 @@ A camada operacional foi informada pelo playbook
 da Anthropic. O SDD Template não replica o playbook: preserva seu kernel de
 contratos vivos, BDD e rastreabilidade e adota as ideias de artefatos como
 estado, gates explícitos, enforcement determinístico, evals e loop operacional.
+

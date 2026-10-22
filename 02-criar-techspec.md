@@ -16,6 +16,10 @@ estratégia de prova.
 ## Regras
 
 - Não implemente código.
+- Prefira adaptar componentes existentes a criar camadas, interfaces, factories
+  ou dependências novas. Justifique novas abstrações por um requisito atual.
+- Mostre ao usuário as decisões arquiteturais materiais e o mapa de diretórios
+  antes de autorizar a implementação; não exija aprovação para cada arquivo.
 - Não repita o PRD; foque no `COMO`.
 - Use documentação atual quando APIs/versões puderem ter mudado.
 - Cubra backend, frontend e contratos entre camadas quando aplicáveis.
@@ -47,6 +51,14 @@ estratégia de prova.
 - Padrões existentes:
 - Comandos de qualidade:
 - Restrições encontradas:
+
+## Mapa arquitetural e organização do código
+
+- Módulos/pacotes/diretórios existentes a reutilizar:
+- Diretórios/arquivos previstos (com justificativa):
+- Responsabilidade e fronteira de cada componente:
+- Ponto de entrada → percurso da solicitação → efeitos persistidos:
+- Onde investigar uma falha típica (arquivo/componente inicial):
 
 ## Componentes e responsabilidades
 
@@ -84,8 +96,18 @@ estratégia de prova.
 
 [Logs, métricas, traces, alertas, health checks e runbook.]
 
+## Simplicidade e limites
+
+- Solução mínima compatível com o código atual:
+- Componentes/abstrações novas e necessidade concreta:
+- O que explicitamente **não** será criado:
+- Alternativa mais simples avaliada, se aplicável:
+
 ## Estratégia de testes
 
+- Comportamento observável e critérios de aceite definidos antes do código:
+- Ciclos Outside-In RED → GREEN → REFACTOR previstos:
+- Exceções ao TDD e respectivas provas:
 - Unitários:
 - Integração:
 - Contrato:

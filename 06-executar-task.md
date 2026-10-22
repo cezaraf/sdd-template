@@ -25,6 +25,13 @@ status: em_execucao
 fase: implementacao
 ```
 
+## Preparação arquitetural (antes de editar)
+
+Apresente o mapa mínimo: módulo, pastas, componentes e responsabilidades
+existentes, arquivos previstos e caminho de execução. Justifique qualquer
+abstração nova por necessidade atual. Em decisão arquitetural material,
+interrompa e valide a escolha com o usuário; não peça aprovação a cada teste.
+
 ## Resumo antes de editar
 
 ```text
@@ -43,16 +50,25 @@ Gates aplicáveis:
 ## Execução
 
 1. Leia os arquivos afetados por completo.
-2. Implemente a menor superfície coerente.
+2. Siga Outside-In TDD quando houver comportamento testável:
+   - **RED:** crie primeiro o teste derivado de cenário aprovado, execute-o e
+     registre a falha esperada (não confunda erro de infraestrutura com RED);
+   - **GREEN:** implemente a menor superfície coerente até o teste passar;
+   - **REFACTOR:** simplifique mantendo toda a suíte verde.
+   Para tarefas não testáveis por código, justifique exceção e outra prova.
 3. Respeite TechSpec, ADRs, impacto contratual e plano.
 4. Não altere `sdd/contratos/`.
 5. Para desvio de arquivo/arquitetura/contrato:
    - pare;
    - registre revisão do plano;
    - reexecute auditoria se material.
-6. Escreva teste que cite cada `SCN-*`.
+6. Vincule cada `SCN-*` ao teste automatizado correspondente e não altere
+   critérios de aceite apenas para fazer passar o código.
 7. Rode feedback loops curtos durante a implementação.
 8. Rode todos os gates reais antes de concluir.
+9. Compare arquivos previstos versus reais e registre um tour curto do fluxo:
+   ponto de entrada, componentes percorridos, responsabilidades e onde começar
+   a depurar uma falha típica. Não omita desvios nem decisões relevantes.
 
 ## Enforcement
 
@@ -79,7 +95,8 @@ Somente com DoD atendida:
   plano exige revisão e reauditoria;
 - altere frontmatter para `status: completed`;
 - atualize somente o status operacional no `INDEX.md`;
-- registre comandos e evidências em `## Evidências produzidas` da task;
+- registre comandos e evidências RED/GREEN/REFACTOR, arquivos reais,
+  decisões e roteiro de diagnóstico em `## Evidências produzidas` da task;
 - rode `compozy tasks validate` e `compozy sync`.
 
 Quando todas as tasks estiverem concluídas, mantenha `status: em_execucao` e

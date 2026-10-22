@@ -11,7 +11,7 @@ poluir regras com casos isolados.
 Decidir o que deve virar:
 
 - contrato vivo;
-- regra/policy/hook;
+- regra/policy/guard;
 - skill;
 - ADR;
 - runbook;
@@ -73,7 +73,7 @@ Não promova preferência pessoal ou detalhe específico sem recorrência.
 | EVAL | Falha que previne | Expectativa |
 | --- | --- | --- |
 
-## Policies/hooks/skills
+## Policies/guard/skills
 
 ## Métricas e operação
 

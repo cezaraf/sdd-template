@@ -74,7 +74,7 @@ contrato.
 Há três níveis:
 
 1. prompt/rule: explica;
-2. policy/hook/CI: bloqueia;
+2. policy/guard/CI: verifica nos gates e antes da entrega;
 3. eval: garante que futuras mudanças no harness não quebrem a regra.
 
 Regra crítica apenas escrita em prompt é frágil.

@@ -24,7 +24,12 @@ Atualize `fase: review`.
 - contratos backend/frontend e compatibilidade;
 - segurança, autorização, tenancy, segredos e integridade;
 - migração, rollback, observabilidade e tratamento de falhas;
+- evidência de teste RED falhando pelo motivo esperado antes de GREEN,
+  refatoração com testes verdes ou exceção de TDD justificada;
 - testes verdes e capazes de falhar sem a implementação;
+- novas abstrações/arquivos justificados por necessidade atual, sem complexidade
+  especulativa;
+- tour arquitetural correspondente ao diff e caminho de diagnóstico verificável;
 - desvio de escopo ou implementação acidental;
 - documentação afetada.
 
@@ -77,6 +82,17 @@ Inclua:
 | --- | --- | --- | --- | --- |
 
 ## Desvios do plano
+
+## Simplicidade e mapa arquitetural real
+
+- Componentes/pastas que mudaram e por quê:
+- Fluxo da funcionalidade, com caminhos reais no repositório:
+- Onde investigar uma falha típica:
+- Abstrações novas: necessidade atual ou excesso a remover:
+
+## Evidências RED / GREEN / REFACTOR
+
+- Comandos/resultados ou exceção justificada:
 
 ## Riscos residuais
 ```
