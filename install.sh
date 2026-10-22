@@ -1010,6 +1010,11 @@ if [ "$SCOPE" = "project" ]; then
     || copy_if_absent "$SRC_DIR/governanca/policies.yaml.example" \
       "$PROJECT_DIR/sdd/governanca/policies.yaml"
 
+  # Desativar primeiro as entradas PreToolUse SDD. Mesmo se uma etapa
+  # posterior falhar, não podem sobrar hooks apontando para um executável
+  # removido. Hooks de terceiros são preservados.
+  uninstall_claude_hooks "$PROJECT_DIR/.claude/settings.json"
+
   # Código do harness é promovido como um único bundle versionado. Arquivos
   # divergentes do último manifest são preservados antes da atualização.
   retire_legacy_hook_file
@@ -1025,10 +1030,6 @@ if [ "$SCOPE" = "project" ]; then
   [ ! -f "$SRC_DIR/evals/README.md" ] \
     || copy_if_absent "$SRC_DIR/evals/README.md" \
       "$PROJECT_DIR/sdd/evals/README.md"
-
-  # Migração sem interceptação local: retire hooks instalados por versões
-  # anteriores, preservando os hooks de terceiros.
-  uninstall_claude_hooks "$PROJECT_DIR/.claude/settings.json"
 
   agents_file="$PROJECT_DIR/AGENTS.md"
   assert_safe_destination "$agents_file"
